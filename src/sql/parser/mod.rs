@@ -6,7 +6,7 @@ use crate::error::{Error, Result};
 
 use super::types::DataType;
 
-mod ast;
+pub mod ast;
 mod lexer;
 
 // 解析器定义
