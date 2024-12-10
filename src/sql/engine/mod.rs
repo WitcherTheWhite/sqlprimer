@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 use super::{executor::ResultSet, parser::Parser, plan::Plan, schema::Table, types::Row};
 
@@ -30,6 +30,14 @@ pub trait Transaction {
     fn create_table(&mut self, table: Table) -> Result<()>;
 
     fn get_table(&self, table_name: String) -> Result<Option<Table>>;
+
+    fn must_get_table(&self, table_name: String) -> Result<Table> {
+        self.get_table(table_name.clone())?
+            .ok_or(Error::Internal(format!(
+                "table {} does not exist",
+                table_name
+            )))
+    }
 }
 
 pub struct Session<E: Engine> {
