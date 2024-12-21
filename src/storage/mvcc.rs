@@ -79,6 +79,7 @@ impl MvccKey {
 pub enum MvccKeyPrefix {
     NextVersion,
     TxnActive,
+    TxnWrite(Version),
 }
 
 impl MvccKeyPrefix {
@@ -115,10 +116,54 @@ impl<E: Engine> MvccTransaciton<E> {
     }
 
     pub fn commmit(&self) -> Result<()> {
+        let mut engine = self.engine.lock()?;
+
+        // 删除当前事务的已写入 key 信息
+        let mut delete_keys = Vec::new();
+        let mut iter = engine.scan_prefix(MvccKeyPrefix::TxnWrite(self.state.version).encode());
+        while let Some((key, _)) = iter.next().transpose()? {
+            delete_keys.push(key);
+        }
+        drop(iter);
+
+        for key in delete_keys.into_iter() {
+            engine.delete(key)?;
+        }
+
+        // 当前事务不再是活跃事务
+        engine.delete(MvccKey::TxnActive(self.state.version).encode())?;
+
         Ok(())
     }
 
     pub fn rollback(&self) -> Result<()> {
+        let mut engine = self.engine.lock()?;
+
+        // 删除当前事务的已写入 key 信息和实际写入的 key/value 数据
+        let mut delete_keys = Vec::new();
+        let mut iter = engine.scan_prefix(MvccKeyPrefix::TxnWrite(self.state.version).encode());
+        while let Some((key, _)) = iter.next().transpose()? {
+            match MvccKey::decode(key.clone())? {
+                MvccKey::TxnWrite(_, raw_key) => {
+                    delete_keys.push(MvccKey::Version(raw_key, self.state.version).encode());
+                }
+                _ => {
+                    return Err(Error::Internal(format!(
+                        "unexpected key: {:?}",
+                        String::from_utf8(key)
+                    )))
+                }
+            }
+            delete_keys.push(key);
+        }
+        drop(iter);
+
+        for key in delete_keys.into_iter() {
+            engine.delete(key)?;
+        }
+
+        // 当前事务不再是活跃事务
+        engine.delete(MvccKey::TxnActive(self.state.version).encode())?;
         Ok(())
     }
 
@@ -131,8 +176,29 @@ impl<E: Engine> MvccTransaciton<E> {
     }
 
     pub fn get(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        let mut eng = self.engine.lock()?;
-        eng.get(key)
+        let mut engine = self.engine.lock()?;
+
+        let from = MvccKey::Version(key.clone(), 0).encode();
+        let to = MvccKey::Version(key.clone(), self.state.version).encode();
+        let mut iter = engine.scan(from..=to).rev();
+        // 找到最新的一个可见版本值
+        while let Some((key, value)) = iter.next().transpose()? {
+            match MvccKey::decode(key.clone())? {
+                MvccKey::Version(_, version) => {
+                    if self.state.is_visible(version) {
+                        return Ok(Some(bincode::deserialize(&value)?));
+                    }
+                }
+                _ => {
+                    return Err(Error::Internal(format!(
+                        "unexpected key: {:?}",
+                        String::from_utf8(key)
+                    )))
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     pub fn scan_prefix(&self, prefix: Vec<u8>) -> Result<Vec<ScanResult>> {
