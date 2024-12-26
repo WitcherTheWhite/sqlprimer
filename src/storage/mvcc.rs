@@ -66,12 +66,12 @@ pub enum MvccKey {
 }
 
 impl MvccKey {
-    pub fn encode(&self) -> Vec<u8> {
-        keycode::serialize_key(self).unwrap()
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        keycode::serialize_key(self)
     }
 
     pub fn decode(data: Vec<u8>) -> Result<Self> {
-        Ok(keycode::deserialize_key(&data)?)
+        keycode::deserialize_key(&data)
     }
 }
 
@@ -93,19 +93,19 @@ impl<E: Engine> MvccTransaciton<E> {
     pub fn begin(eng: Arc<Mutex<E>>) -> Result<Self> {
         let mut engine = eng.lock()?;
         // 获取最新版本号
-        let next_version = match engine.get(MvccKey::NextVersion.encode())? {
+        let next_version = match engine.get(MvccKey::NextVersion.encode()?)? {
             Some(value) => bincode::deserialize(&value)?,
             None => 1,
         };
         // 保存下一个版本号
         engine.set(
-            MvccKey::NextVersion.encode(),
+            MvccKey::NextVersion.encode()?,
             bincode::serialize(&(next_version + 1))?,
         )?;
 
         // 获取当前活跃事务列表并将当前事务设置为活跃事务
         let active_versions = Self::scan_active(&mut engine)?;
-        engine.set(MvccKey::TxnActive(next_version).encode(), vec![])?;
+        engine.set(MvccKey::TxnActive(next_version).encode()?, vec![])?;
 
         Ok(Self {
             engine: eng.clone(),
@@ -132,7 +132,7 @@ impl<E: Engine> MvccTransaciton<E> {
         }
 
         // 当前事务不再是活跃事务
-        engine.delete(MvccKey::TxnActive(self.state.version).encode())?;
+        engine.delete(MvccKey::TxnActive(self.state.version).encode()?)?;
 
         Ok(())
     }
@@ -146,7 +146,7 @@ impl<E: Engine> MvccTransaciton<E> {
         while let Some((key, _)) = iter.next().transpose()? {
             match MvccKey::decode(key.clone())? {
                 MvccKey::TxnWrite(_, raw_key) => {
-                    delete_keys.push(MvccKey::Version(raw_key, self.state.version).encode());
+                    delete_keys.push(MvccKey::Version(raw_key, self.state.version).encode()?);
                 }
                 _ => {
                     return Err(Error::Internal(format!(
@@ -164,7 +164,7 @@ impl<E: Engine> MvccTransaciton<E> {
         }
 
         // 当前事务不再是活跃事务
-        engine.delete(MvccKey::TxnActive(self.state.version).encode())?;
+        engine.delete(MvccKey::TxnActive(self.state.version).encode()?)?;
         Ok(())
     }
 
@@ -179,8 +179,8 @@ impl<E: Engine> MvccTransaciton<E> {
     pub fn get(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let mut engine = self.engine.lock()?;
 
-        let from = MvccKey::Version(key.clone(), 0).encode();
-        let to = MvccKey::Version(key.clone(), self.state.version).encode();
+        let from = MvccKey::Version(key.clone(), 0).encode()?;
+        let to = MvccKey::Version(key.clone(), self.state.version).encode()?;
         let mut iter = engine.scan(from..=to).rev();
         // 找到最新的一个可见版本值
         while let Some((key, value)) = iter.next().transpose()? {
@@ -249,8 +249,8 @@ impl<E: Engine> MvccTransaciton<E> {
                 .copied()
                 .unwrap_or(self.state.version + 1),
         )
-        .encode();
-        let to = MvccKey::Version(key.clone(), u64::MAX).encode();
+        .encode()?;
+        let to = MvccKey::Version(key.clone(), u64::MAX).encode()?;
         if let Some((k, _)) = engine.scan(from..=to).last().transpose()? {
             match MvccKey::decode(k.clone())? {
                 MvccKey::Version(_, version) => {
@@ -270,13 +270,13 @@ impl<E: Engine> MvccTransaciton<E> {
 
         // 记录当前事务写入的 key
         engine.set(
-            MvccKey::TxnWrite(self.state.version, key.clone()).encode(),
+            MvccKey::TxnWrite(self.state.version, key.clone()).encode()?,
             vec![],
         )?;
 
         // 写入实际的 key/value 数据
         engine.set(
-            MvccKey::Version(key, self.state.version).encode(),
+            MvccKey::Version(key, self.state.version).encode()?,
             bincode::serialize(&value)?,
         )?;
 

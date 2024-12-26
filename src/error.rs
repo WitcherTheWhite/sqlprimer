@@ -1,4 +1,7 @@
-use std::fmt::{self, Display};
+use std::{
+    fmt::{self, Display},
+    string::FromUtf8Error,
+};
 
 use serde::{de, ser};
 
@@ -43,6 +46,12 @@ impl From<std::io::Error> for Error {
 
 impl From<std::array::TryFromSliceError> for Error {
     fn from(value: std::array::TryFromSliceError) -> Self {
+        Error::Internal(value.to_string())
+    }
+}
+
+impl From<FromUtf8Error> for Error {
+    fn from(value: FromUtf8Error) -> Self {
         Error::Internal(value.to_string())
     }
 }

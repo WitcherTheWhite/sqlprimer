@@ -54,8 +54,9 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         todo!()
     }
 
-    fn serialize_i64(self, _v: i64) -> Result<()> {
-        todo!()
+    fn serialize_i64(self, v: i64) -> Result<()> {
+        self.output.extend(v.to_be_bytes());
+        Ok(())
     }
 
     fn serialize_u8(self, _v: u8) -> Result<()> {
@@ -87,15 +88,16 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         todo!()
     }
 
-    fn serialize_str(self, _v: &str) -> Result<()> {
-        todo!()
+    fn serialize_str(self, v: &str) -> Result<()> {
+        self.output.extend(v.as_bytes());
+        Ok(())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<()> {
         let mut res = Vec::new();
         for e in v.iter() {
             match e {
-                0 => res.extend([0, 25]),
+                0 => res.extend([0, 255]),
                 b => res.push(*b),
             }
         }
@@ -321,11 +323,13 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         todo!()
     }
 
-    fn deserialize_i64<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value>
     where
         V: de::Visitor<'de>,
     {
-        todo!()
+        let bytes = self.take_bytes(8);
+        let v = i64::from_be_bytes(bytes.try_into()?);
+        visitor.visit_i64(v)
     }
 
     fn deserialize_u8<V>(self, _visitor: V) -> Result<V::Value>
@@ -378,11 +382,12 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         todo!()
     }
-    fn deserialize_str<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value>
     where
         V: de::Visitor<'de>,
     {
-        todo!()
+        let bytes = self.next_bytes()?;
+        visitor.visit_str(&String::from_utf8(bytes)?)
     }
 
     fn deserialize_string<V>(self, _visitor: V) -> Result<V::Value>
@@ -403,7 +408,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        visitor.visit_bytes(&self.next_bytes()?)
+        visitor.visit_byte_buf(self.next_bytes()?)
     }
 
     fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value>

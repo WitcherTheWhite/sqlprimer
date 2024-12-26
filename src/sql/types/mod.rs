@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 use super::parser::ast::{Consts, Expression};
@@ -37,6 +39,21 @@ impl Value {
             Value::Integer(_) => Some(DataType::Integer),
             Value::Float(_) => Some(DataType::Float),
             Value::String(_) => Some(DataType::String),
+        }
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Null => f.write_str("NULL"),
+            Value::Boolean(b) => match *b {
+                true => f.write_str("TRUE"),
+                false => f.write_str("FALSE"),
+            },
+            Value::Integer(v) => write!(f, "{}", v),
+            Value::Float(v) => write!(f, "{}", v),
+            Value::String(v) => write!(f, "{}", v),
         }
     }
 }
