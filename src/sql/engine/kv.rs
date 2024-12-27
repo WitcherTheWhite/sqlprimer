@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     error::{Error, Result},
     sql::{
+        parser::ast::Expression,
         schema::Table,
         types::{Row, Value},
     },
@@ -97,13 +98,24 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
         Ok(())
     }
 
-    fn scan_table(&self, table_name: String) -> Result<Vec<Row>> {
+    fn scan_table(
+        &self,
+        table_name: String,
+        filter: Option<(String, Expression)>,
+    ) -> Result<Vec<Row>> {
+        let table = self.must_get_table(table_name.clone())?;
         let prefix = KeyPrefix::Row(table_name.clone()).encode()?;
         let results = self.txn.scan_prefix(prefix)?;
 
         let mut rows = Vec::new();
         for result in results {
             let row: Row = bincode::deserialize(&result.value)?;
+            if let Some((col, expr)) = &filter {
+                let i = table.get_col_indedx(&col)?;
+                if row[i] != Value::from_expression(expr.clone()) {
+                    continue;
+                }
+            }
             rows.push(row);
         }
 
@@ -136,6 +148,21 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
             .get(key)?
             .map(|v| bincode::deserialize(&v))
             .transpose()?)
+    }
+
+    fn update_row(&mut self, table: &Table, id: &Value, row: Row) -> Result<()> {
+        let new_pk = table.get_primary_key(&row)?;
+        // 如果主键更新，需要删除之前的数据
+        if *id != new_pk {
+            let key = Key::Row(table.name.clone(), id.clone()).encode()?;
+            self.txn.delete(key)?;
+        }
+
+        let key = Key::Row(table.name.clone(), new_pk).encode()?;
+        let value = bincode::serialize(&row)?;
+        self.txn.set(key, value)?;
+
+        Ok(())
     }
 }
 
@@ -180,6 +207,25 @@ mod tests {
         s.execute("insert into t1 values (2, 'a');")?;
         s.execute("insert into t1 (c, a) values (200, 3);")?;
 
+        let v1 = s.execute("select * from t1;")?;
+        println!("{:?}", v1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_update() -> Result<()> {
+        let kv_engine = KVEngine::new(MemoryEngine::new());
+        let mut s = kv_engine.session()?;
+        s.execute(
+            "create table t1 (a int primary key, b text default 'zz', c integer default 100);",
+        )?;
+        s.execute("insert into t1 values (1, 'hsy', 5);")?;
+        s.execute("insert into t1 values (2, 'a');")?;
+        s.execute("insert into t1 (c, a) values (200, 3);")?;
+
+        s.execute("update t1 set b = 'aa' where a = 1;")?;
+        s.execute("update t1 set a = 33  where a = 3;")?;
+        
         let v1 = s.execute("select * from t1;")?;
         println!("{:?}", v1);
         Ok(())

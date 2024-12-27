@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use planner::Planner;
 
 use crate::error::Result;
@@ -29,6 +31,14 @@ pub enum Node {
     // 扫描节点
     Scan {
         table_name: String,
+        filter: Option<(String, Expression)>,
+    },
+
+    // 更新节点
+    Update {
+        table_name: String,
+        source: Box<Node>,
+        columns: BTreeMap<String, Expression>,
     },
 }
 
@@ -40,7 +50,7 @@ impl Plan {
         Planner::new().build(stmt)
     }
 
-    pub fn execute<T: Transaction>(self, txn: &mut T) -> Result<ResultSet> {
+    pub fn execute<T: Transaction + 'static>(self, txn: &mut T) -> Result<ResultSet> {
         <dyn Executor<T>>::build(self.0).execute(txn)
     }
 }
@@ -141,6 +151,7 @@ mod tests {
             p,
             Plan(Node::Scan {
                 table_name: "tbl1".to_string(),
+                filter: None
             })
         );
 

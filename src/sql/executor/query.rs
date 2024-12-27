@@ -1,21 +1,25 @@
-use crate::{error::Result, sql::engine::Transaction};
+use crate::{
+    error::Result,
+    sql::{engine::Transaction, parser::ast::Expression},
+};
 
 use super::{Executor, ResultSet};
 
 pub struct Scan {
     table_name: String,
+    filter: Option<(String, Expression)>,
 }
 
 impl Scan {
-    pub fn new(table_name: String) -> Box<Self> {
-        Box::new(Self { table_name })
+    pub fn new(table_name: String, filter: Option<(String, Expression)>) -> Box<Self> {
+        Box::new(Self { table_name, filter })
     }
 }
 
 impl<T: Transaction> Executor<T> for Scan {
     fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
         let table = txn.must_get_table(self.table_name.clone())?;
-        let rows = txn.scan_table(self.table_name)?;
+        let rows = txn.scan_table(self.table_name, self.filter)?;
 
         Ok(ResultSet::Scan {
             columns: table
@@ -23,7 +27,7 @@ impl<T: Transaction> Executor<T> for Scan {
                 .into_iter()
                 .map(|c| c.name.clone())
                 .collect::<Vec<_>>(),
-            row: rows,
+            rows,
         })
     }
 }

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::sql::types::DataType;
 
 // Abstract Syntax Tree 抽象语法树定义
@@ -15,6 +17,11 @@ pub enum Statement {
     Select {
         table_name: String,
     },
+    Update {
+        table_name: String,
+        columns: BTreeMap<String, Expression>,
+        where_clause: Option<(String, Expression)>,
+    },
 }
 
 // 列定义
@@ -28,7 +35,7 @@ pub struct Column {
 }
 
 // 表达式定义，目前只有常量
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     Consts(Consts),
 }
@@ -39,7 +46,7 @@ impl From<Consts> for Expression {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Consts {
     Null,
     Boolean(bool),

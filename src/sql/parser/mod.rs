@@ -1,5 +1,6 @@
-use std::iter::Peekable;
+use std::{collections::BTreeMap, iter::Peekable};
 
+use ast::Expression;
 use lexer::{Keyword, Lexer, Token};
 
 use crate::error::{Error, Result};
@@ -38,6 +39,7 @@ impl<'a> Parser<'a> {
             Some(Token::Keyword(Keyword::Create)) => self.parse_ddl(),
             Some(Token::Keyword(Keyword::Select)) => self.parse_select(),
             Some(Token::Keyword(Keyword::Insert)) => self.parse_insert(),
+            Some(Token::Keyword(Keyword::Update)) => self.parse_update(),
             Some(t) => Err(Error::Parse(format!("[Parser] Unexpected token {}", t))),
             None => Err(Error::Parse(format!("[Parser] Unexpected end of input"))),
         }
@@ -119,6 +121,48 @@ impl<'a> Parser<'a> {
             columns,
             values,
         })
+    }
+
+    fn parse_update(&mut self) -> Result<ast::Statement> {
+        self.next_expect(Token::Keyword(Keyword::Update))?;
+        let table_name = self.next_ident()?;
+        self.next_expect(Token::Keyword(Keyword::Set))?;
+
+        // 要更新的列和数据
+        let mut columns = BTreeMap::new();
+        loop {
+            let col = self.next_ident()?;
+            if columns.contains_key(&col) {
+                return Err(Error::Parse(format!(
+                    "[Parser] Duplicate column {} for update",
+                    col
+                )));
+            }
+            self.next_expect(Token::Equal)?;
+            let value = self.parse_expression()?;
+            columns.insert(col, value);
+            if self.next_if_token(Token::Comma).is_none() {
+                break;
+            }
+        }
+
+        Ok(ast::Statement::Update {
+            table_name,
+            columns,
+            where_clause: self.parse_where_clause()?,
+        })
+    }
+
+    fn parse_where_clause(&mut self) -> Result<Option<(String, Expression)>> {
+        if self.next_if_token(Token::Keyword(Keyword::Where)).is_none() {
+            return Ok(None);
+        }
+
+        let col = self.next_ident()?;
+        self.next_expect(Token::Equal)?;
+        let value = self.parse_expression()?;
+
+        Ok(Some((col, value)))
     }
 
     fn parse_ddl_create_table(&mut self) -> Result<ast::Statement> {
@@ -357,6 +401,27 @@ mod tests {
                 table_name: "tbl1".to_string()
             }
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parser_update() -> Result<()> {
+        let sql = "update tabl set a = 1, b = 2.0 where c = 'a';";
+        let stmt = Parser::new(sql).parse()?;
+        assert_eq!(
+            stmt,
+            ast::Statement::Update {
+                table_name: "tabl".into(),
+                columns: vec![
+                    ("a".into(), ast::Consts::Integer(1).into()),
+                    ("b".into(), ast::Consts::Float(2.0).into()),
+                ]
+                .into_iter()
+                .collect(),
+                where_clause: Some(("c".into(), ast::Consts::String("a".into()).into())),
+            },
+        );
+
         Ok(())
     }
 }

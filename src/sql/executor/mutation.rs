@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::{
     error::{Error, Result},
@@ -97,5 +97,49 @@ impl<T: Transaction> Executor<T> for Insert {
         }
 
         Ok(ResultSet::Insert { count })
+    }
+}
+
+pub struct Update<T: Transaction> {
+    table_name: String,
+    source: Box<dyn Executor<T>>,
+    columns: BTreeMap<String, Expression>,
+}
+
+impl<T: Transaction> Update<T> {
+    pub fn new(
+        table_name: String,
+        source: Box<dyn Executor<T>>,
+        columns: BTreeMap<String, Expression>,
+    ) -> Box<Self> {
+        Box::new(Self {
+            table_name,
+            source,
+            columns,
+        })
+    }
+}
+
+impl<T: Transaction> Executor<T> for Update<T> {
+    fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
+        match self.source.execute(txn)? {
+            ResultSet::Scan { columns, rows } => {
+                let mut updated = 0;
+                let table = txn.must_get_table(self.table_name)?;
+                for row in rows {
+                    let mut new_row = row.clone();
+                    let pk = table.get_primary_key(&row)?;
+                    for (i, col) in columns.iter().enumerate() {
+                        if let Some(expr) = self.columns.get(col) {
+                            new_row[i] = Value::from_expression(expr.clone());
+                        }
+                    }
+                    txn.update_row(&table, &pk, new_row)?;
+                    updated += 1;
+                }
+                return Ok(ResultSet::Update { count: updated });
+            }
+            _ => return Err(Error::Internal("Unexpected result set".into())),
+        }
     }
 }

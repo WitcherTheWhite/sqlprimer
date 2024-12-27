@@ -49,6 +49,13 @@ impl Table {
             .expect("No primary key found");
         Ok(row[pos].clone())
     }
+
+    pub fn get_col_indedx(&self, col_name: &str) -> Result<usize> {
+        self.columns
+            .iter()
+            .position(|c| c.name == col_name)
+            .ok_or(Error::Internal(format!("Column {} not found", col_name)))
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
