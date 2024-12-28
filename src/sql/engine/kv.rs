@@ -164,7 +164,7 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
 
         Ok(())
     }
-    
+
     fn delete_row(&mut self, table: &Table, row: Row) -> Result<()> {
         let id = table.get_primary_key(&row)?;
         let key = Key::Row(table.name.clone(), id).encode()?;
@@ -198,60 +198,321 @@ impl KeyPrefix {
 
 #[cfg(test)]
 mod tests {
-    use crate::{error::Result, sql::engine::Engine, storage::memory::MemoryEngine};
 
     use super::KVEngine;
+    use crate::storage::engine::Engine as StorageEngine;
+    use crate::{
+        error::Result,
+        sql::{
+            engine::{Engine, Session},
+            executor::ResultSet,
+            types::{Row, Value},
+        },
+        storage::disk::DiskEngine,
+    };
+
+    fn setup_table<E: StorageEngine + 'static>(s: &mut Session<KVEngine<E>>) -> Result<()> {
+        s.execute(
+            "create table t1 (
+                     a int primary key,
+                     b text default 'vv',
+                     c integer default 100
+                 );",
+        )?;
+
+        s.execute(
+            "create table t2 (
+                     a int primary key,
+                     b integer default 100,
+                     c float default 1.1,
+                     d bool default false,
+                     e boolean default true,
+                     f text default 'v1',
+                     g string default 'v2',
+                     h varchar default 'v3'
+                 );",
+        )?;
+
+        s.execute(
+            "create table t3 (
+                     a int primary key,
+                     b int default 12 null,
+                     c integer default NULL,
+                     d float not NULL
+                 );",
+        )?;
+
+        s.execute(
+            "create table t4 (
+                     a bool primary key,
+                     b int default 12,
+                     d boolean default true
+                 );",
+        )?;
+        Ok(())
+    }
+
+    fn scan_table_and_compare<E: StorageEngine + 'static>(
+        s: &mut Session<KVEngine<E>>,
+        table_name: &str,
+        expect: Vec<Row>,
+    ) -> Result<()> {
+        match s.execute(&format!("select * from {};", table_name))? {
+            ResultSet::Scan { columns: _, rows } => {
+                assert_eq!(rows, expect);
+            }
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn scan_table_and_print<E: StorageEngine + 'static>(
+        s: &mut Session<KVEngine<E>>,
+        table_name: &str,
+    ) -> Result<()> {
+        match s.execute(&format!("select * from {};", table_name))? {
+            ResultSet::Scan { columns: _, rows } => {
+                for row in rows {
+                    println!("{:?}", row);
+                }
+            }
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
 
     #[test]
     fn test_create_table() -> Result<()> {
-        let kv_engine = KVEngine::new(MemoryEngine::new());
-        let mut s = kv_engine.session()?;
-        s.execute(
-            "create table t1 (a int primary key, b text default 'zz', c integer default 100);",
-        )?;
-        s.execute("insert into t1 values (1, 'hsy', 5);")?;
-        s.execute("insert into t1 values (2, 'a');")?;
-        s.execute("insert into t1 (c, a) values (200, 3);")?;
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut s = kvengine.session()?;
+        setup_table(&mut s)?;
+        std::fs::remove_dir_all(p.parent().unwrap())?;
+        Ok(())
+    }
 
-        let v1 = s.execute("select * from t1;")?;
-        println!("{:?}", v1);
+    #[test]
+    fn test_insert() -> Result<()> {
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut s = kvengine.session()?;
+        setup_table(&mut s)?;
+
+        // t1
+        s.execute("insert into t1 (a) values (1);")?;
+        s.execute("insert into t1 values (2, 'a', 2);")?;
+        s.execute("insert into t1(b,a) values ('b', 3);")?;
+
+        scan_table_and_compare(
+            &mut s,
+            "t1",
+            vec![
+                vec![
+                    Value::Integer(1),
+                    Value::String("vv".to_string()),
+                    Value::Integer(100),
+                ],
+                vec![
+                    Value::Integer(2),
+                    Value::String("a".to_string()),
+                    Value::Integer(2),
+                ],
+                vec![
+                    Value::Integer(3),
+                    Value::String("b".to_string()),
+                    Value::Integer(100),
+                ],
+            ],
+        )?;
+
+        // t2
+        s.execute("insert into t2 (a) values (1);")?;
+        scan_table_and_compare(
+            &mut s,
+            "t2",
+            vec![vec![
+                Value::Integer(1),
+                Value::Integer(100),
+                Value::Float(1.1),
+                Value::Boolean(false),
+                Value::Boolean(true),
+                Value::String("v1".to_string()),
+                Value::String("v2".to_string()),
+                Value::String("v3".to_string()),
+            ]],
+        )?;
+
+        // t3
+        s.execute("insert into t3 (a, d) values (1, 1.1);")?;
+        scan_table_and_compare(
+            &mut s,
+            "t3",
+            vec![vec![
+                Value::Integer(1),
+                Value::Integer(12),
+                Value::Null,
+                Value::Float(1.1),
+            ]],
+        )?;
+
+        // t4
+        s.execute("insert into t4 (a) values (true);")?;
+        scan_table_and_compare(
+            &mut s,
+            "t4",
+            vec![vec![
+                Value::Boolean(true),
+                Value::Integer(12),
+                Value::Boolean(true),
+            ]],
+        )?;
+
+        std::fs::remove_dir_all(p.parent().unwrap())?;
         Ok(())
     }
 
     #[test]
     fn test_update() -> Result<()> {
-        let kv_engine = KVEngine::new(MemoryEngine::new());
-        let mut s = kv_engine.session()?;
-        s.execute(
-            "create table t1 (a int primary key, b text default 'zz', c integer default 100);",
-        )?;
-        s.execute("insert into t1 values (1, 'hsy', 5);")?;
-        s.execute("insert into t1 values (2, 'a');")?;
-        s.execute("insert into t1 (c, a) values (200, 3);")?;
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut s = kvengine.session()?;
+        setup_table(&mut s)?;
 
-        s.execute("update t1 set b = 'aa' where a = 1;")?;
-        s.execute("update t1 set a = 33  where a = 3;")?;
-        
-        let v1 = s.execute("select * from t1;")?;
-        println!("{:?}", v1);
+        s.execute("insert into t2 values (1, 1, 1.1, true, true, 'v1', 'v2', 'v3');")?;
+        s.execute("insert into t2 values (2, 2, 2.2, false, false, 'v4', 'v5', 'v6');")?;
+        s.execute("insert into t2 values (3, 3, 3.3, true, false, 'v7', 'v8', 'v9');")?;
+        s.execute("insert into t2 values (4, 4, 4.4, false, true, 'v10', 'v11', 'v12');")?;
+
+        let res = s.execute("update t2 set b = 100 where a = 1;")?;
+        assert_eq!(res, ResultSet::Update { count: 1 });
+        let res = s.execute("update t2 set d = false where d = true;")?;
+        assert_eq!(res, ResultSet::Update { count: 2 });
+
+        scan_table_and_compare(
+            &mut s,
+            "t2",
+            vec![
+                vec![
+                    Value::Integer(1),
+                    Value::Integer(100),
+                    Value::Float(1.1),
+                    Value::Boolean(false),
+                    Value::Boolean(true),
+                    Value::String("v1".to_string()),
+                    Value::String("v2".to_string()),
+                    Value::String("v3".to_string()),
+                ],
+                vec![
+                    Value::Integer(2),
+                    Value::Integer(2),
+                    Value::Float(2.2),
+                    Value::Boolean(false),
+                    Value::Boolean(false),
+                    Value::String("v4".to_string()),
+                    Value::String("v5".to_string()),
+                    Value::String("v6".to_string()),
+                ],
+                vec![
+                    Value::Integer(3),
+                    Value::Integer(3),
+                    Value::Float(3.3),
+                    Value::Boolean(false),
+                    Value::Boolean(false),
+                    Value::String("v7".to_string()),
+                    Value::String("v8".to_string()),
+                    Value::String("v9".to_string()),
+                ],
+                vec![
+                    Value::Integer(4),
+                    Value::Integer(4),
+                    Value::Float(4.4),
+                    Value::Boolean(false),
+                    Value::Boolean(true),
+                    Value::String("v10".to_string()),
+                    Value::String("v11".to_string()),
+                    Value::String("v12".to_string()),
+                ],
+            ],
+        )?;
+
+        std::fs::remove_dir_all(p.parent().unwrap())?;
         Ok(())
     }
 
     #[test]
     fn test_delete() -> Result<()> {
-        let kv_engine = KVEngine::new(MemoryEngine::new());
-        let mut s = kv_engine.session()?;
-        s.execute(
-            "create table t1 (a int primary key, b text default 'zz', c integer default 100);",
-        )?;
-        s.execute("insert into t1 values (1, 'hsy', 5);")?;
-        s.execute("insert into t1 values (2, 'a');")?;
-        s.execute("insert into t1 (c, a) values (200, 3);")?;
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut s = kvengine.session()?;
+        setup_table(&mut s)?;
 
-        s.execute("delete from t1 where a = 1;")?;
-        
-        let v1 = s.execute("select * from t1;")?;
-        println!("{:?}", v1);
+        s.execute("insert into t2 values (1, 1, 1.1, true, true, 'v1', 'v2', 'v3');")?;
+        s.execute("insert into t2 values (2, 2, 2.2, false, false, 'v4', 'v5', 'v6');")?;
+        s.execute("insert into t2 values (3, 3, 3.3, true, false, 'v7', 'v8', 'v9');")?;
+        s.execute("insert into t2 values (4, 4, 4.4, false, true, 'v10', 'v11', 'v12');")?;
+
+        let res = s.execute("delete from t2 where a = 1;")?;
+        assert_eq!(res, ResultSet::Delete { count: 1 });
+        scan_table_and_compare(
+            &mut s,
+            "t2",
+            vec![
+                vec![
+                    Value::Integer(2),
+                    Value::Integer(2),
+                    Value::Float(2.2),
+                    Value::Boolean(false),
+                    Value::Boolean(false),
+                    Value::String("v4".to_string()),
+                    Value::String("v5".to_string()),
+                    Value::String("v6".to_string()),
+                ],
+                vec![
+                    Value::Integer(3),
+                    Value::Integer(3),
+                    Value::Float(3.3),
+                    Value::Boolean(true),
+                    Value::Boolean(false),
+                    Value::String("v7".to_string()),
+                    Value::String("v8".to_string()),
+                    Value::String("v9".to_string()),
+                ],
+                vec![
+                    Value::Integer(4),
+                    Value::Integer(4),
+                    Value::Float(4.4),
+                    Value::Boolean(false),
+                    Value::Boolean(true),
+                    Value::String("v10".to_string()),
+                    Value::String("v11".to_string()),
+                    Value::String("v12".to_string()),
+                ],
+            ],
+        )?;
+
+        let res = s.execute("delete from t2 where d = false;")?;
+        assert_eq!(res, ResultSet::Delete { count: 2 });
+        scan_table_and_compare(
+            &mut s,
+            "t2",
+            vec![vec![
+                Value::Integer(3),
+                Value::Integer(3),
+                Value::Float(3.3),
+                Value::Boolean(true),
+                Value::Boolean(false),
+                Value::String("v7".to_string()),
+                Value::String("v8".to_string()),
+                Value::String("v9".to_string()),
+            ]],
+        )?;
+
+        let res = s.execute("delete from t2;")?;
+        assert_eq!(res, ResultSet::Delete { count: 1 });
+        scan_table_and_compare(&mut s, "t2", vec![])?;
+
+        std::fs::remove_dir_all(p.parent().unwrap())?;
         Ok(())
     }
 }

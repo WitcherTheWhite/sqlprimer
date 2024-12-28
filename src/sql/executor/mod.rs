@@ -36,7 +36,7 @@ impl<T: Transaction + 'static> dyn Executor<T> {
 }
 
 // 执行结果集
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ResultSet {
     CreateTable {
         table_name: String,

@@ -38,6 +38,31 @@ impl Table {
             }
         }
 
+        // 校验列信息
+        for col in &self.columns {
+            // 主键不能为空
+            if col.primary_key && col.nullable {
+                return Err(Error::Internal(format!(
+                    "Primary key {} cannot be nullable in table {}",
+                    col.name, self.name,
+                )));
+            }
+            // 默认值数据类型要和列类型匹配
+            if let Some(v) = &col.default {
+                match v.datatype() {
+                    Some(dt) => {
+                        if dt != col.datatype {
+                            return Err(Error::Internal(format!(
+                                "Default value for column {} mismatch in table {}",
+                                col.name, self.name
+                            )));
+                        }
+                    }
+                    None => {}
+                }
+            }
+        }
+
         Ok(())
     }
 
