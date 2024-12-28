@@ -33,6 +33,8 @@ pub trait Transaction {
 
     fn update_row(&mut self, table: &Table, id: &Value, row: Row) -> Result<()>;
 
+    fn delete_row(&mut self, table: &Table, row: Row) -> Result<()>;
+
     fn scan_table(
         &self,
         table_name: String,

@@ -164,6 +164,12 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
 
         Ok(())
     }
+    
+    fn delete_row(&mut self, table: &Table, row: Row) -> Result<()> {
+        let id = table.get_primary_key(&row)?;
+        let key = Key::Row(table.name.clone(), id).encode()?;
+        self.txn.delete(key)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -225,6 +231,24 @@ mod tests {
 
         s.execute("update t1 set b = 'aa' where a = 1;")?;
         s.execute("update t1 set a = 33  where a = 3;")?;
+        
+        let v1 = s.execute("select * from t1;")?;
+        println!("{:?}", v1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_delete() -> Result<()> {
+        let kv_engine = KVEngine::new(MemoryEngine::new());
+        let mut s = kv_engine.session()?;
+        s.execute(
+            "create table t1 (a int primary key, b text default 'zz', c integer default 100);",
+        )?;
+        s.execute("insert into t1 values (1, 'hsy', 5);")?;
+        s.execute("insert into t1 values (2, 'a');")?;
+        s.execute("insert into t1 (c, a) values (200, 3);")?;
+
+        s.execute("delete from t1 where a = 1;")?;
         
         let v1 = s.execute("select * from t1;")?;
         println!("{:?}", v1);
