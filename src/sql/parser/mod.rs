@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, iter::Peekable};
 
-use ast::Expression;
+use ast::{Expression, OrderDirection};
 use lexer::{Keyword, Lexer, Token};
 
 use crate::error::{Error, Result};
@@ -62,7 +62,10 @@ impl<'a> Parser<'a> {
         self.next_expect(Token::Keyword(Keyword::From))?;
 
         let table_name = self.next_ident()?;
-        Ok(ast::Statement::Select { table_name })
+        Ok(ast::Statement::Select {
+            table_name,
+            order_by: self.parse_order_clause()?,
+        })
     }
 
     fn parse_insert(&mut self) -> Result<ast::Statement> {
@@ -175,6 +178,35 @@ impl<'a> Parser<'a> {
         let value = self.parse_expression()?;
 
         Ok(Some((col, value)))
+    }
+
+    fn parse_order_clause(&mut self) -> Result<Vec<(String, OrderDirection)>> {
+        let mut orders = Vec::new();
+        if self.next_if_token(Token::Keyword(Keyword::Order)).is_none() {
+            return Ok(orders);
+        }
+        self.next_expect(Token::Keyword(Keyword::By))?;
+
+        loop {
+            let col = self.next_ident()?;
+            let ord = match self.next_if(|t| {
+                matches!(
+                    t,
+                    Token::Keyword(Keyword::Asc) | Token::Keyword(Keyword::Desc)
+                )
+            }) {
+                Some(Token::Keyword(Keyword::Asc)) => OrderDirection::Asc,
+                Some(Token::Keyword(Keyword::Desc)) => OrderDirection::Desc,
+                _ => OrderDirection::Asc,
+            };
+            orders.push((col, ord));
+
+            if self.next_if_token(Token::Comma).is_none() {
+                break;
+            }
+        }
+
+        Ok(orders)
     }
 
     fn parse_ddl_create_table(&mut self) -> Result<ast::Statement> {
@@ -318,7 +350,10 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{error::Result, sql::parser::ast};
+    use crate::{
+        error::Result,
+        sql::parser::ast::{self, OrderDirection},
+    };
 
     use super::Parser;
 
@@ -410,7 +445,22 @@ mod tests {
         assert_eq!(
             stmt,
             ast::Statement::Select {
-                table_name: "tbl1".to_string()
+                table_name: "tbl1".to_string(),
+                order_by: vec![],
+            }
+        );
+
+        let sql = "select * from tbl1 order by a, b asc, c desc;";
+        let stmt = Parser::new(sql).parse()?;
+        assert_eq!(
+            stmt,
+            ast::Statement::Select {
+                table_name: "tbl1".to_string(),
+                order_by: vec![
+                    ("a".to_string(), OrderDirection::Asc),
+                    ("b".to_string(), OrderDirection::Asc),
+                    ("c".to_string(), OrderDirection::Desc),
+                ],
             }
         );
         Ok(())

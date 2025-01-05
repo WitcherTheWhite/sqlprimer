@@ -7,7 +7,7 @@ use crate::error::Result;
 use super::{
     engine::Transaction,
     executor::{Executor, ResultSet},
-    parser::ast::{self, Expression},
+    parser::ast::{self, Expression, OrderDirection},
     schema::Table,
 };
 
@@ -45,6 +45,12 @@ pub enum Node {
     Delete {
         table_name: String,
         source: Box<Node>,
+    },
+
+    // 排序节点
+    Order {
+        source: Box<Node>,
+        order_by: Vec<(String, OrderDirection)>,
     },
 }
 
