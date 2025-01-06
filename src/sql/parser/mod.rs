@@ -57,12 +57,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_select(&mut self) -> Result<ast::Statement> {
-        self.next_expect(Token::Keyword(Keyword::Select))?;
-        self.next_expect(Token::Asterisk)?;
+        let select = self.parse_select_clause()?;
         self.next_expect(Token::Keyword(Keyword::From))?;
 
         let table_name = self.next_ident()?;
         Ok(ast::Statement::Select {
+            select,
             table_name,
             order_by: self.parse_order_clause()?,
             limit: {
@@ -226,6 +226,30 @@ impl<'a> Parser<'a> {
         Ok(orders)
     }
 
+    fn parse_select_clause(&mut self) -> Result<Vec<(Expression, Option<String>)>> {
+        self.next_expect(Token::Keyword(Keyword::Select))?;
+
+        let mut select = Vec::new();
+        if self.next_if_token(Token::Asterisk).is_some() {
+            return Ok(select);
+        }
+
+        loop {
+            let expr = self.parse_expression()?;
+            let alias = match self.next_if_token(Token::Keyword(Keyword::As)) {
+                Some(_) => Some(self.next_ident()?),
+                None => None,
+            };
+            select.push((expr, alias));
+
+            if self.next_if_token(Token::Comma).is_none() {
+                break;
+            }
+        }
+
+        Ok(select)
+    }
+
     fn parse_ddl_create_table(&mut self) -> Result<ast::Statement> {
         let table_name = self.next_ident()?;
         self.next_expect(Token::OpenParen)?;
@@ -276,6 +300,7 @@ impl<'a> Parser<'a> {
 
     fn parse_expression(&mut self) -> Result<ast::Expression> {
         Ok(match self.next()? {
+            Token::Ident(ident) => ast::Expression::Filed(ident),
             Token::Number(n) => {
                 if n.chars().all(|c| c.is_ascii_digit()) {
                     // 整数
@@ -457,7 +482,7 @@ mod tests {
 
     #[test]
     fn test_parser_select() -> Result<()> {
-        let sql = "select * from tbl1 limit 10 offset 10;";
+        let sql = "select a as hsy, b from tbl1 limit 10 offset 10;";
         let stmt = Parser::new(sql).parse()?;
         assert_eq!(
             stmt,
@@ -466,6 +491,10 @@ mod tests {
                 order_by: vec![],
                 limit: Some(Expression::Consts(Consts::Integer(10))),
                 offset: Some(Expression::Consts(Consts::Integer(10))),
+                select: vec![
+                    (Expression::Filed("a".to_string()), Some("hsy".to_string())),
+                    (Expression::Filed("b".to_string()), None),
+                ],
             }
         );
 
@@ -482,6 +511,7 @@ mod tests {
                 ],
                 limit: Some(Expression::Consts(Consts::Integer(5))),
                 offset: Some(Expression::Consts(Consts::Integer(20))),
+                select: vec![],
             }
         );
         Ok(())

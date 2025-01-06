@@ -60,6 +60,7 @@ impl Planner {
                 order_by,
                 limit,
                 offset,
+                select,
             } => {
                 let mut node = Node::Scan {
                     table_name,
@@ -90,6 +91,13 @@ impl Planner {
                             Value::Integer(i) => i as usize,
                             _ => return Err(Error::Internal("invalid limit".into())),
                         },
+                    }
+                }
+
+                if !select.is_empty() {
+                    node = Node::Projection {
+                        source: Box::new(node),
+                        select,
                     }
                 }
 

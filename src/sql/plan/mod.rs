@@ -64,6 +64,12 @@ pub enum Node {
         source: Box<Node>,
         offset: usize,
     },
+
+    // 投影节点
+    Projection {
+        source: Box<Node>,
+        select: Vec<(Expression, Option<String>)>,
+    },
 }
 
 #[derive(Debug, PartialEq)]
