@@ -1,5 +1,5 @@
 use mutation::{Delete, Insert, Update};
-use query::{Order, Scan};
+use query::{Limit, Offset, Order, Scan};
 use schema::CreateTable;
 
 use crate::error::Result;
@@ -32,6 +32,8 @@ impl<T: Transaction + 'static> dyn Executor<T> {
             } => Update::new(table_name, Self::build(*source), columns),
             Node::Delete { table_name, source } => Delete::new(table_name, Self::build(*source)),
             Node::Order { source, order_by } => Order::new(Self::build(*source), order_by),
+            Node::Limit { source, limit } => Limit::new(Self::build(*source), limit),
+            Node::Offset { source, offset } => Offset::new(Self::build(*source), offset),
         }
     }
 }

@@ -65,6 +65,23 @@ impl<'a> Parser<'a> {
         Ok(ast::Statement::Select {
             table_name,
             order_by: self.parse_order_clause()?,
+            limit: {
+                if self.next_if_token(Token::Keyword(Keyword::Limit)).is_some() {
+                    Some(self.parse_expression()?)
+                } else {
+                    None
+                }
+            },
+            offset: {
+                if self
+                    .next_if_token(Token::Keyword(Keyword::Offset))
+                    .is_some()
+                {
+                    Some(self.parse_expression()?)
+                } else {
+                    None
+                }
+            },
         })
     }
 
@@ -352,7 +369,7 @@ impl<'a> Parser<'a> {
 mod tests {
     use crate::{
         error::Result,
-        sql::parser::ast::{self, OrderDirection},
+        sql::parser::ast::{self, Consts, Expression, OrderDirection},
     };
 
     use super::Parser;
@@ -440,17 +457,19 @@ mod tests {
 
     #[test]
     fn test_parser_select() -> Result<()> {
-        let sql = "select * from tbl1;";
+        let sql = "select * from tbl1 limit 10 offset 10;";
         let stmt = Parser::new(sql).parse()?;
         assert_eq!(
             stmt,
             ast::Statement::Select {
                 table_name: "tbl1".to_string(),
                 order_by: vec![],
+                limit: Some(Expression::Consts(Consts::Integer(10))),
+                offset: Some(Expression::Consts(Consts::Integer(10))),
             }
         );
 
-        let sql = "select * from tbl1 order by a, b asc, c desc;";
+        let sql = "select * from tbl1 order by a, b asc, c desc limit 5 offset 20;";
         let stmt = Parser::new(sql).parse()?;
         assert_eq!(
             stmt,
@@ -461,6 +480,8 @@ mod tests {
                     ("b".to_string(), OrderDirection::Asc),
                     ("c".to_string(), OrderDirection::Desc),
                 ],
+                limit: Some(Expression::Consts(Consts::Integer(5))),
+                offset: Some(Expression::Consts(Consts::Integer(20))),
             }
         );
         Ok(())

@@ -1,7 +1,10 @@
-use crate::sql::{
-    parser::ast,
-    schema::{self, Table},
-    types::Value,
+use crate::{
+    error::{Error, Result},
+    sql::{
+        parser::ast,
+        schema::{self, Table},
+        types::Value,
+    },
 };
 
 use super::{Node, Plan};
@@ -13,12 +16,12 @@ impl Planner {
         Self {}
     }
 
-    pub fn build(&self, stmt: ast::Statement) -> Plan {
-        Plan(self.build_statement(stmt))
+    pub fn build(&self, stmt: ast::Statement) -> Result<Plan> {
+        Ok(Plan(self.build_statement(stmt)?))
     }
 
-    fn build_statement(&self, stmt: ast::Statement) -> Node {
-        match stmt {
+    fn build_statement(&self, stmt: ast::Statement) -> Result<Node> {
+        Ok(match stmt {
             ast::Statement::CreateTable { name, columns } => Node::CreateTable {
                 schema: Table {
                     name,
@@ -55,6 +58,8 @@ impl Planner {
             ast::Statement::Select {
                 table_name,
                 order_by,
+                limit,
+                offset,
             } => {
                 let mut node = Node::Scan {
                     table_name,
@@ -65,6 +70,26 @@ impl Planner {
                     node = Node::Order {
                         source: Box::new(node),
                         order_by,
+                    }
+                }
+
+                if let Some(expr) = offset {
+                    node = Node::Offset {
+                        source: Box::new(node),
+                        offset: match Value::from_expression(expr) {
+                            Value::Integer(i) => i as usize,
+                            _ => return Err(Error::Internal("invalid offset".into())),
+                        },
+                    }
+                }
+
+                if let Some(expr) = limit {
+                    node = Node::Limit {
+                        source: Box::new(node),
+                        limit: match Value::from_expression(expr) {
+                            Value::Integer(i) => i as usize,
+                            _ => return Err(Error::Internal("invalid limit".into())),
+                        },
                     }
                 }
 
@@ -92,6 +117,6 @@ impl Planner {
                     filter: where_clause,
                 }),
             },
-        }
+        })
     }
 }
