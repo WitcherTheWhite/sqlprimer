@@ -56,16 +56,13 @@ impl Planner {
                 values,
             },
             ast::Statement::Select {
-                table_name,
                 order_by,
                 limit,
                 offset,
                 select,
+                from,
             } => {
-                let mut node = Node::Scan {
-                    table_name,
-                    filter: None,
-                };
+                let mut node = self.build_from_item(from)?;
 
                 if !order_by.is_empty() {
                     node = Node::Order {
@@ -126,5 +123,25 @@ impl Planner {
                 }),
             },
         })
+    }
+
+    fn build_from_item(&self, item: ast::FromItem) -> Result<Node> {
+        match item {
+            ast::FromItem::Table { name } => Ok(Node::Scan {
+                table_name: name,
+                filter: None,
+            }),
+            ast::FromItem::Join {
+                left,
+                right,
+                join_type,
+            } => match join_type {
+                ast::JoinType::Cross => Ok(Node::NestedLoopJoin {
+                    left: Box::new(self.build_from_item(*left)?),
+                    right: Box::new(self.build_from_item(*right)?),
+                }),
+                _ => todo!(),
+            },
+        }
     }
 }

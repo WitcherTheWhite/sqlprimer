@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, iter::Peekable};
 
-use ast::{Expression, OrderDirection};
+use ast::{Expression, FromItem, OrderDirection};
 use lexer::{Keyword, Lexer, Token};
 
 use crate::error::{Error, Result};
@@ -58,12 +58,10 @@ impl<'a> Parser<'a> {
 
     fn parse_select(&mut self) -> Result<ast::Statement> {
         let select = self.parse_select_clause()?;
-        self.next_expect(Token::Keyword(Keyword::From))?;
 
-        let table_name = self.next_ident()?;
         Ok(ast::Statement::Select {
             select,
-            table_name,
+            from: self.parse_from_clause()?,
             order_by: self.parse_order_clause()?,
             limit: {
                 if self.next_if_token(Token::Keyword(Keyword::Limit)).is_some() {
@@ -83,6 +81,38 @@ impl<'a> Parser<'a> {
                 }
             },
         })
+    }
+
+    fn parse_from_clause(&mut self) -> Result<ast::FromItem> {
+        self.next_expect(Token::Keyword(Keyword::From))?;
+
+        let mut item = self.parse_from_table_clause()?;
+        while let Some(join_type) = self.parse_from_clause_join()? {
+            let left = Box::new(item);
+            let right = Box::new(self.parse_from_table_clause()?);
+            item = FromItem::Join {
+                left,
+                right,
+                join_type,
+            }
+        }
+
+        Ok(item)
+    }
+
+    fn parse_from_table_clause(&mut self) -> Result<ast::FromItem> {
+        Ok(ast::FromItem::Table {
+            name: self.next_ident()?,
+        })
+    }
+
+    fn parse_from_clause_join(&mut self) -> Result<Option<ast::JoinType>> {
+        if self.next_if_token(Token::Keyword(Keyword::Cross)).is_some() {
+            self.next_expect(Token::Keyword(Keyword::Join))?;
+            return Ok(Some(ast::JoinType::Cross));
+        }
+
+        Ok(None)
     }
 
     fn parse_insert(&mut self) -> Result<ast::Statement> {
@@ -394,7 +424,7 @@ impl<'a> Parser<'a> {
 mod tests {
     use crate::{
         error::Result,
-        sql::parser::ast::{self, Consts, Expression, OrderDirection},
+        sql::parser::ast::{self, Consts, Expression, FromItem, JoinType, OrderDirection},
     };
 
     use super::Parser;
@@ -482,12 +512,27 @@ mod tests {
 
     #[test]
     fn test_parser_select() -> Result<()> {
-        let sql = "select a as hsy, b from tbl1 limit 10 offset 10;";
+        let sql =
+            "select a as hsy, b from tbl1 cross join tbl2 cross join tbl3 limit 10 offset 10;";
         let stmt = Parser::new(sql).parse()?;
         assert_eq!(
             stmt,
             ast::Statement::Select {
-                table_name: "tbl1".to_string(),
+                from: FromItem::Join {
+                    left: Box::new(FromItem::Join {
+                        left: Box::new(FromItem::Table {
+                            name: "tbl1".to_string()
+                        }),
+                        right: Box::new(FromItem::Table {
+                            name: "tbl2".to_string()
+                        }),
+                        join_type: JoinType::Cross,
+                    }),
+                    right: Box::new(FromItem::Table {
+                        name: "tbl3".to_string()
+                    }),
+                    join_type: ast::JoinType::Cross
+                },
                 order_by: vec![],
                 limit: Some(Expression::Consts(Consts::Integer(10))),
                 offset: Some(Expression::Consts(Consts::Integer(10))),
@@ -503,7 +548,9 @@ mod tests {
         assert_eq!(
             stmt,
             ast::Statement::Select {
-                table_name: "tbl1".to_string(),
+                from: FromItem::Table {
+                    name: "tbl1".to_string()
+                },
                 order_by: vec![
                     ("a".to_string(), OrderDirection::Asc),
                     ("b".to_string(), OrderDirection::Asc),

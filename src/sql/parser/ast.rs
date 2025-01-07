@@ -16,7 +16,7 @@ pub enum Statement {
     },
     Select {
         select: Vec<(Expression, Option<String>)>,
-        table_name: String,
+        from: FromItem,
         order_by: Vec<(String, OrderDirection)>,
         limit: Option<Expression>,
         offset: Option<Expression>,
@@ -67,4 +67,25 @@ pub enum Consts {
     Integer(i64),
     Float(f64),
     String(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum FromItem {
+    Table {
+        name: String,
+    },
+
+    Join {
+        left: Box<FromItem>,
+        right: Box<FromItem>,
+        join_type: JoinType,
+    },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum JoinType {
+    Cross,
+    Inner,
+    Left,
+    Right,
 }

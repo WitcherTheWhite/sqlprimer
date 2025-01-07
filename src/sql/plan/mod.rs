@@ -70,6 +70,12 @@ pub enum Node {
         source: Box<Node>,
         select: Vec<(Expression, Option<String>)>,
     },
+
+    // 嵌套循环 join 节点
+    NestedLoopJoin {
+        left: Box<Node>,
+        right: Box<Node>,
+    }
 }
 
 #[derive(Debug, PartialEq)]
