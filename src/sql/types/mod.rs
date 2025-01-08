@@ -30,6 +30,7 @@ impl Value {
             Expression::Consts(Consts::Float(f)) => Self::Float(f),
             Expression::Consts(Consts::String(s)) => Self::String(s),
             Expression::Filed(s) => Self::String(s),
+            _ => unreachable!(),
         }
     }
 

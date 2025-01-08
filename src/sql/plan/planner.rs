@@ -135,13 +135,26 @@ impl Planner {
                 left,
                 right,
                 join_type,
-            } => match join_type {
-                ast::JoinType::Cross => Ok(Node::NestedLoopJoin {
+                predicate,
+            } => {
+                // 把 right join 转换为 left join
+                let (left, right) = match join_type {
+                    ast::JoinType::Right => (right, left),
+                    _ => (left, right),
+                };
+
+                let outer = match join_type {
+                    ast::JoinType::Cross | ast::JoinType::Inner => false,
+                    _ => true,
+                };
+
+                Ok(Node::NestedLoopJoin {
                     left: Box::new(self.build_from_item(*left)?),
                     right: Box::new(self.build_from_item(*right)?),
-                }),
-                _ => todo!(),
-            },
+                    predicate,
+                    outer,
+                })
+            }
         }
     }
 }

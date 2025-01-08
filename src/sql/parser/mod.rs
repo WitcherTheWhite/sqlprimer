@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, iter::Peekable};
 
-use ast::{Expression, FromItem, OrderDirection};
+use ast::{Expression, FromItem, Operation, OrderDirection};
 use lexer::{Keyword, Lexer, Token};
 
 use crate::error::{Error, Result};
@@ -86,14 +86,37 @@ impl<'a> Parser<'a> {
     fn parse_from_clause(&mut self) -> Result<ast::FromItem> {
         self.next_expect(Token::Keyword(Keyword::From))?;
 
-        let mut item = self.parse_from_table_clause()?;
+        let mut item: FromItem = self.parse_from_table_clause()?;
         while let Some(join_type) = self.parse_from_clause_join()? {
             let left = Box::new(item);
             let right = Box::new(self.parse_from_table_clause()?);
+
+            // 解析 join 条件
+            let predicate = match join_type {
+                ast::JoinType::Cross => None,
+                _ => {
+                    self.next_expect(Token::Keyword(Keyword::On))?;
+                    let l = self.parse_expression()?;
+                    self.next_expect(Token::Equal)?;
+                    let r = self.parse_expression()?;
+
+                    let (l, r) = match join_type {
+                        ast::JoinType::Right => (r, l),
+                        _ => (l, r),
+                    };
+
+                    Some(Expression::Operation(Operation::Equal(
+                        Box::new(l),
+                        Box::new(r),
+                    )))
+                }
+            };
+
             item = FromItem::Join {
                 left,
                 right,
                 join_type,
+                predicate,
             }
         }
 
@@ -110,6 +133,14 @@ impl<'a> Parser<'a> {
         if self.next_if_token(Token::Keyword(Keyword::Cross)).is_some() {
             self.next_expect(Token::Keyword(Keyword::Join))?;
             return Ok(Some(ast::JoinType::Cross));
+        } else if self.next_if_token(Token::Keyword(Keyword::Join)).is_some() {
+            return Ok(Some(ast::JoinType::Inner));
+        } else if self.next_if_token(Token::Keyword(Keyword::Left)).is_some() {
+            self.next_expect(Token::Keyword(Keyword::Join))?;
+            return Ok(Some(ast::JoinType::Left));
+        } else if self.next_if_token(Token::Keyword(Keyword::Right)).is_some() {
+            self.next_expect(Token::Keyword(Keyword::Join))?;
+            return Ok(Some(ast::JoinType::Right));
         }
 
         Ok(None)
@@ -527,11 +558,13 @@ mod tests {
                             name: "tbl2".to_string()
                         }),
                         join_type: JoinType::Cross,
+                        predicate: None
                     }),
                     right: Box::new(FromItem::Table {
                         name: "tbl3".to_string()
                     }),
-                    join_type: ast::JoinType::Cross
+                    join_type: ast::JoinType::Cross,
+                    predicate: None
                 },
                 order_by: vec![],
                 limit: Some(Expression::Consts(Consts::Integer(10))),

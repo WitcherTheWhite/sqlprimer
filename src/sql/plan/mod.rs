@@ -75,7 +75,9 @@ pub enum Node {
     NestedLoopJoin {
         left: Box<Node>,
         right: Box<Node>,
-    }
+        predicate: Option<Expression>,
+        outer: bool,
+    },
 }
 
 #[derive(Debug, PartialEq)]
