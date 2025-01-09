@@ -8,11 +8,11 @@ use crate::error::Result;
 
 use super::{engine::Transaction, plan::Node, types::Row};
 
+mod agg;
 mod join;
 mod mutation;
 mod query;
 mod schema;
-mod agg;
 
 // 执行器定义
 pub trait Executor<T: Transaction> {
@@ -45,7 +45,11 @@ impl<T: Transaction + 'static> dyn Executor<T> {
                 predicate,
                 outer,
             } => NestedLoopJoin::new(Self::build(*left), Self::build(*right), predicate, outer),
-            Node::Aggregate { source, exprs } => Aggregate::new(Self::build(*source), exprs),
+            Node::Aggregate {
+                source,
+                exprs,
+                group_by,
+            } => Aggregate::new(Self::build(*source), exprs, group_by),
         }
     }
 }

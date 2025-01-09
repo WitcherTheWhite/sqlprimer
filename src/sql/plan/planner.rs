@@ -61,6 +61,7 @@ impl Planner {
                 offset,
                 select,
                 from,
+                group_by,
             } => {
                 let mut node = self.build_from_item(from)?;
 
@@ -76,6 +77,7 @@ impl Planner {
                         node = Node::Aggregate {
                             source: Box::new(node),
                             exprs: select.clone(),
+                            group_by,
                         }
                     }
                 }

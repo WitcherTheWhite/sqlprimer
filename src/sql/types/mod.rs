@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, fmt::Display};
+use std::{cmp::Ordering, fmt::Display, hash::Hash};
 
 use serde::{Deserialize, Serialize};
 
@@ -76,5 +76,31 @@ impl PartialOrd for Value {
         }
     }
 }
+
+impl Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Value::Null => state.write_u8(0),
+            Value::Boolean(v) => {
+                state.write_u8(1);
+                v.hash(state);
+            }
+            Value::Integer(v) => {
+                state.write_u8(2);
+                v.hash(state);
+            }
+            Value::Float(v) => {
+                state.write_u8(3);
+                v.to_be_bytes().hash(state);
+            }
+            Value::String(v) => {
+                state.write_u8(4);
+                v.hash(state);
+            }
+        }
+    }
+}
+
+impl Eq for Value {}
 
 pub type Row = Vec<Value>;

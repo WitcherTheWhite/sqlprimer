@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     error::{Error, Result},
     sql::{engine::Transaction, parser::ast::Expression, types::Value},
@@ -8,14 +10,20 @@ use super::{Executor, ResultSet};
 pub struct Aggregate<T: Transaction> {
     source: Box<dyn Executor<T>>,
     exprs: Vec<(Expression, Option<String>)>,
+    group_by: Option<Expression>,
 }
 
 impl<T: Transaction> Aggregate<T> {
     pub fn new(
         source: Box<dyn Executor<T>>,
         exprs: Vec<(Expression, Option<String>)>,
+        group_by: Option<Expression>,
     ) -> Box<Self> {
-        Box::new(Self { source, exprs })
+        Box::new(Self {
+            source,
+            exprs,
+            group_by,
+        })
     }
 }
 
@@ -24,18 +32,78 @@ impl<T: Transaction> Executor<T> for Aggregate<T> {
         if let ResultSet::Scan { columns, rows } = self.source.execute(txn)? {
             let mut new_cols = Vec::new();
             let mut new_rows = Vec::new();
-            for (expr, alias) in self.exprs {
-                if let Expression::Function(func_name, col_name) = expr {
-                    let calculator = <dyn Calculator>::build(&func_name)?;
-                    let val = calculator.calc(&col_name, &columns, &rows)?;
 
-                    new_cols.push(if let Some(a) = alias { a } else { func_name });
-                    new_rows.push(val);
+            // 计算函数
+            let mut calc = |col_val: Option<Value>, rows: &Vec<Vec<Value>>| -> Result<Vec<Value>> {
+                let mut new_row = Vec::new();
+                for (expr, alias) in &self.exprs {
+                    match expr {
+                        Expression::Function(func_name, col_name) => {
+                            let calculator = <dyn Calculator>::build(&func_name)?;
+                            let val = calculator.calc(&col_name, &columns, &rows)?;
+
+                            if new_cols.len() < self.exprs.len() {
+                                new_cols.push(if let Some(a) = alias {
+                                    a.clone()
+                                } else {
+                                    func_name.clone()
+                                })
+                            };
+                            new_row.push(val);
+                        }
+                        Expression::Filed(col_name) => {
+                            if let Some(Expression::Filed(group_col)) = &self.group_by {
+                                if *col_name != *group_col {
+                                    return Err(Error::Internal(format!("{} must appear in the Group By clause or aggregate function", col_name)));
+                                }
+                            }
+
+                            if new_cols.len() < self.exprs.len() {
+                                new_cols.push(if let Some(a) = alias {
+                                    a.clone()
+                                } else {
+                                    col_name.clone()
+                                })
+                            };
+                            new_row.push(col_val.clone().unwrap());
+                        }
+                        _ => return Err(Error::Internal("unexpeted expression".into())),
+                    }
                 }
+                Ok(new_row)
+            };
+
+            // group by 处理
+            if let Some(Expression::Filed(group_col)) = &self.group_by {
+                let pos = match columns.iter().position(|c| *c == *group_col) {
+                    Some(pos) => pos,
+                    None => {
+                        return Err(Error::Internal(format!(
+                            "column {} is not in table",
+                            group_col
+                        )))
+                    }
+                };
+
+                let mut agg_map = HashMap::new();
+                for row in &rows {
+                    let key = row[pos].clone();
+                    let val = agg_map.entry(key).or_insert(Vec::new());
+                    val.push(row.clone());
+                }
+
+                for (key, row) in agg_map {
+                    let new_row = calc(Some(key), &row)?;
+                    new_rows.push(new_row);
+                }
+            } else {
+                let new_row = calc(None, &rows)?;
+                new_rows.push(new_row);
             }
+
             return Ok(ResultSet::Scan {
                 columns: new_cols,
-                rows: vec![new_rows],
+                rows: new_rows,
             });
         }
 

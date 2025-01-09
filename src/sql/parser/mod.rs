@@ -62,6 +62,7 @@ impl<'a> Parser<'a> {
         Ok(ast::Statement::Select {
             select,
             from: self.parse_from_clause()?,
+            group_by: self.parse_group_clause()?,
             order_by: self.parse_order_clause()?,
             limit: {
                 if self.next_if_token(Token::Keyword(Keyword::Limit)).is_some() {
@@ -81,6 +82,15 @@ impl<'a> Parser<'a> {
                 }
             },
         })
+    }
+
+    fn parse_group_clause(&mut self) -> Result<Option<Expression>> {
+        if self.next_if_token(Token::Keyword(Keyword::Group)).is_none() {
+            return Ok(None);
+        }
+        self.next_expect(Token::Keyword(Keyword::By))?;
+
+        Ok(Some(self.parse_expression()?))
     }
 
     fn parse_from_clause(&mut self) -> Result<ast::FromItem> {
@@ -582,6 +592,7 @@ mod tests {
                     (Expression::Filed("a".to_string()), Some("hsy".to_string())),
                     (Expression::Filed("b".to_string()), None),
                 ],
+                group_by: None,
             }
         );
 
@@ -601,6 +612,7 @@ mod tests {
                 limit: Some(Expression::Consts(Consts::Integer(5))),
                 offset: Some(Expression::Consts(Consts::Integer(20))),
                 select: vec![],
+                group_by: None,
             }
         );
 
@@ -620,6 +632,27 @@ mod tests {
                     (Expression::Function("max".into(), "b".into()), None),
                     (Expression::Function("min".into(), "c".into()), None)
                 ],
+                group_by: None,
+            }
+        );
+
+        let sql = "select count(a), max(b), min(c) from tbl1 group by a;";
+        let stmt = Parser::new(sql).parse()?;
+        assert_eq!(
+            stmt,
+            ast::Statement::Select {
+                from: FromItem::Table {
+                    name: "tbl1".to_string()
+                },
+                order_by: vec![],
+                limit: None,
+                offset: None,
+                select: vec![
+                    (Expression::Function("count".into(), "a".into()), None),
+                    (Expression::Function("max".into(), "b".into()), None),
+                    (Expression::Function("min".into(), "c".into()), None)
+                ],
+                group_by: Some(Expression::Filed("a".into())),
             }
         );
 
