@@ -78,6 +78,12 @@ pub enum Node {
         predicate: Option<Expression>,
         outer: bool,
     },
+
+    // 聚集节点
+    Aggregate {
+        source: Box<Node>,
+        exprs: Vec<(Expression, Option<String>)>,
+    }
 }
 
 #[derive(Debug, PartialEq)]

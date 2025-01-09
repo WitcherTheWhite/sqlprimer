@@ -361,7 +361,16 @@ impl<'a> Parser<'a> {
 
     fn parse_expression(&mut self) -> Result<ast::Expression> {
         Ok(match self.next()? {
-            Token::Ident(ident) => ast::Expression::Filed(ident),
+            Token::Ident(ident) => {
+                // 函数名称 eg.max(col_name)
+                if self.next_if_token(Token::OpenParen).is_some() {
+                    let col_name = self.next_ident()?;
+                    self.next_expect(Token::CloseParen)?;
+                    ast::Expression::Function(ident, col_name)
+                } else {
+                    ast::Expression::Filed(ident)
+                }
+            }
             Token::Number(n) => {
                 if n.chars().all(|c| c.is_ascii_digit()) {
                     // 整数
@@ -594,6 +603,26 @@ mod tests {
                 select: vec![],
             }
         );
+
+        let sql = "select count(a), max(b), min(c) from tbl1;";
+        let stmt = Parser::new(sql).parse()?;
+        assert_eq!(
+            stmt,
+            ast::Statement::Select {
+                from: FromItem::Table {
+                    name: "tbl1".to_string()
+                },
+                order_by: vec![],
+                limit: None,
+                offset: None,
+                select: vec![
+                    (Expression::Function("count".into(), "a".into()), None),
+                    (Expression::Function("max".into(), "b".into()), None),
+                    (Expression::Function("min".into(), "c".into()), None)
+                ],
+            }
+        );
+
         Ok(())
     }
 

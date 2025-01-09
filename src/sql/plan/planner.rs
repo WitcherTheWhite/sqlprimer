@@ -1,7 +1,7 @@
 use crate::{
     error::{Error, Result},
     sql::{
-        parser::ast,
+        parser::ast::{self, Expression},
         schema::{self, Table},
         types::Value,
     },
@@ -64,6 +64,22 @@ impl Planner {
             } => {
                 let mut node = self.build_from_item(from)?;
 
+                let mut has_agg = false;
+                if !select.is_empty() {
+                    for (expr, _) in select.iter() {
+                        if let Expression::Function(_, _) = expr {
+                            has_agg = true;
+                            break;
+                        }
+                    }
+                    if has_agg {
+                        node = Node::Aggregate {
+                            source: Box::new(node),
+                            exprs: select.clone(),
+                        }
+                    }
+                }
+
                 if !order_by.is_empty() {
                     node = Node::Order {
                         source: Box::new(node),
@@ -91,7 +107,7 @@ impl Planner {
                     }
                 }
 
-                if !select.is_empty() {
+                if !select.is_empty() && !has_agg {
                     node = Node::Projection {
                         source: Box::new(node),
                         select,
