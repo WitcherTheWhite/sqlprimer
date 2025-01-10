@@ -62,8 +62,10 @@ impl Planner {
                 select,
                 from,
                 group_by,
+                where_clause,
+                having,
             } => {
-                let mut node = self.build_from_item(from)?;
+                let mut node = self.build_from_item(from, where_clause)?;
 
                 let mut has_agg = false;
                 if !select.is_empty() {
@@ -79,6 +81,13 @@ impl Planner {
                             exprs: select.clone(),
                             group_by,
                         }
+                    }
+                }
+
+                if having.is_some() {
+                    node = Node::Filter {
+                        source: Box::new(node),
+                        predicate: having,
                     }
                 }
 
@@ -143,11 +152,11 @@ impl Planner {
         })
     }
 
-    fn build_from_item(&self, item: ast::FromItem) -> Result<Node> {
+    fn build_from_item(&self, item: ast::FromItem, filter: Option<Expression>) -> Result<Node> {
         match item {
             ast::FromItem::Table { name } => Ok(Node::Scan {
                 table_name: name,
-                filter: None,
+                filter: filter,
             }),
             ast::FromItem::Join {
                 left,
@@ -167,8 +176,8 @@ impl Planner {
                 };
 
                 Ok(Node::NestedLoopJoin {
-                    left: Box::new(self.build_from_item(*left)?),
-                    right: Box::new(self.build_from_item(*right)?),
+                    left: Box::new(self.build_from_item(*left, filter.clone())?),
+                    right: Box::new(self.build_from_item(*right, filter)?),
                     predicate,
                     outer,
                 })

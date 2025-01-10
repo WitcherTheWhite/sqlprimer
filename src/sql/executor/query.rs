@@ -4,7 +4,8 @@ use crate::{
     error::{Error, Result},
     sql::{
         engine::Transaction,
-        parser::ast::{Expression, OrderDirection},
+        parser::ast::{evaluate_expr, Expression, OrderDirection},
+        types::Value,
     },
 };
 
@@ -12,11 +13,11 @@ use super::{Executor, ResultSet};
 
 pub struct Scan {
     table_name: String,
-    filter: Option<(String, Expression)>,
+    filter: Option<Expression>,
 }
 
 impl Scan {
-    pub fn new(table_name: String, filter: Option<(String, Expression)>) -> Box<Self> {
+    pub fn new(table_name: String, filter: Option<Expression>) -> Box<Self> {
         Box::new(Self { table_name, filter })
     }
 }
@@ -191,6 +192,44 @@ impl<T: Transaction> Executor<T> for Projection<T> {
                 })
             }
             _ => return Err(Error::Internal("Unexpected result set".into())),
+        }
+    }
+}
+
+pub struct Filter<T: Transaction> {
+    source: Box<dyn Executor<T>>,
+    predicate: Option<Expression>,
+}
+
+impl<T: Transaction> Filter<T> {
+    pub fn new(source: Box<dyn Executor<T>>, predicate: Option<Expression>) -> Box<Self> {
+        Box::new(Self { source, predicate })
+    }
+}
+
+impl<T: Transaction> Executor<T> for Filter<T> {
+    fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
+        match self.source.execute(txn)? {
+            ResultSet::Scan { columns, rows } => {
+                let mut new_rows = Vec::new();
+                for row in rows {
+                    if let Some(expr) = &self.predicate {
+                        match evaluate_expr(expr, &columns, &row, &columns, &row)? {
+                            Value::Null => {}
+                            Value::Boolean(false) => {}
+                            Value::Boolean(true) => {
+                                new_rows.push(row);
+                            }
+                            _ => return Err(Error::Internal("Unexpected expression".into())),
+                        }
+                    }
+                }
+                Ok(ResultSet::Scan {
+                    columns,
+                    rows: new_rows,
+                })
+            }
+            _ => Err(Error::Internal("Unexpected result set".into())),
         }
     }
 }

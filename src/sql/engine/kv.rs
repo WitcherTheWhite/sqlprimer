@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     error::{Error, Result},
     sql::{
-        parser::ast::Expression,
+        parser::ast::{evaluate_expr, Expression},
         schema::Table,
         types::{Row, Value},
     },
@@ -98,11 +98,7 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
         Ok(())
     }
 
-    fn scan_table(
-        &self,
-        table_name: String,
-        filter: Option<(String, Expression)>,
-    ) -> Result<Vec<Row>> {
+    fn scan_table(&self, table_name: String, filter: Option<Expression>) -> Result<Vec<Row>> {
         let table = self.must_get_table(table_name.clone())?;
         let prefix = KeyPrefix::Row(table_name.clone()).encode()?;
         let results = self.txn.scan_prefix(prefix)?;
@@ -110,13 +106,19 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
         let mut rows = Vec::new();
         for result in results {
             let row: Row = bincode::deserialize(&result.value)?;
-            if let Some((col, expr)) = &filter {
-                let i = table.get_col_indedx(&col)?;
-                if row[i] != Value::from_expression(expr.clone()) {
-                    continue;
+            if let Some(expr) = &filter {
+                let cols = table.columns.iter().map(|c| c.name.clone()).collect();
+                match evaluate_expr(expr, &cols, &row, &cols, &row)? {
+                    Value::Null => {}
+                    Value::Boolean(false) => {}
+                    Value::Boolean(true) => {
+                        rows.push(row);
+                    }
+                    _ => return Err(Error::Internal("Unexpected expression".into())),
                 }
+            } else {
+                rows.push(row);
             }
-            rows.push(row);
         }
 
         Ok(rows)
@@ -531,10 +533,9 @@ mod tests {
         s.execute("insert into t3 values (7, 87, 82, 9.52);")?;
 
         match s.execute("select a, d from t3 order by c, d desc;")? {
-            ResultSet::Scan { columns: _, rows } => {
-                for r in rows {
-                    println!("{:?}", r)
-                }
+            ResultSet::Scan { columns, rows } => {
+                assert_eq!(2, columns.len());
+                assert_eq!(6, rows.len());
             }
             _ => unreachable!(),
         }
@@ -585,12 +586,12 @@ mod tests {
         s.execute("insert into t3 values (3), (8), (9);")?;
 
         match s.execute("select * from t1 right join t2 on a = b join t3 on a = c;")? {
-            ResultSet::Scan { columns: _, rows } => {
-                // assert_eq!(3, columns.len());
-                // assert_eq!(1, rows.len());
-                for row in rows {
-                    println!("{:?}", row);
-                }
+            ResultSet::Scan { columns, rows } => {
+                assert_eq!(3, columns.len());
+                assert_eq!(1, rows.len());
+                // for row in rows {
+                //     println!("{:?}", row);
+                // }
             }
             _ => unreachable!(),
         }
@@ -698,6 +699,40 @@ mod tests {
                         ],
                     ]
                 );
+            }
+            _ => unreachable!(),
+        }
+
+        std::fs::remove_dir_all(p.parent().unwrap())?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_filter() -> Result<()> {
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut s = kvengine.session()?;
+        s.execute("create table t1 (a int primary key, b text, c float, d bool);")?;
+
+        s.execute("insert into t1 values (1, 'aa', 3.1, true);")?;
+        s.execute("insert into t1 values (2, 'bb', 5.3, true);")?;
+        s.execute("insert into t1 values (3, null, NULL, false);")?;
+        s.execute("insert into t1 values (4, null, 4.6, false);")?;
+        s.execute("insert into t1 values (5, 'bb', 5.8, true);")?;
+        s.execute("insert into t1 values (6, 'dd', 1.4, false);")?;
+
+        match s.execute("select * from t1 where d < true;")? {
+            ResultSet::Scan { columns, rows } => {
+                assert_eq!(4, columns.len());
+                assert_eq!(3, rows.len());
+            }
+            _ => unreachable!(),
+        }
+
+        match s.execute("select b, sum(c) from t1 group by b having sum < 5 order by sum;")? {
+            ResultSet::Scan { columns, rows } => {
+                assert_eq!(2, columns.len());
+                assert_eq!(3, rows.len());
             }
             _ => unreachable!(),
         }

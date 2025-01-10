@@ -2,7 +2,7 @@ use crate::{
     error::{Error, Result},
     sql::{
         engine::Transaction,
-        parser::ast::{self, Expression},
+        parser::ast::{evaluate_expr, Expression},
         types::Value,
     },
 };
@@ -78,7 +78,7 @@ impl<T: Transaction> Executor<T> for NestedLoopJoin<T> {
                         for _ in 0..rcols.len() {
                             row.push(Value::Null);
                         }
-                        new_rows.push(row); 
+                        new_rows.push(row);
                     }
                 }
 
@@ -90,51 +90,5 @@ impl<T: Transaction> Executor<T> for NestedLoopJoin<T> {
         }
 
         Err(Error::Internal("Unexpected result set".into()))
-    }
-}
-
-fn evaluate_expr(
-    expr: &Expression,
-    lcols: &Vec<String>,
-    lrow: &Vec<Value>,
-    rcols: &Vec<String>,
-    rrow: &Vec<Value>,
-) -> Result<Value> {
-    match expr {
-        Expression::Filed(col_name) => {
-            let pos = match lcols.iter().position(|c| *c == *col_name) {
-                Some(pos) => pos,
-                None => {
-                    return Err(Error::Internal(format!(
-                        "column {} is not in table",
-                        col_name
-                    )))
-                }
-            };
-            Ok(lrow[pos].clone())
-        }
-        Expression::Operation(operation) => match operation {
-            ast::Operation::Equal(lexpr, rexpr) => {
-                let lv = evaluate_expr(&lexpr, lcols, lrow, rcols, rrow)?;
-                let rv = evaluate_expr(&rexpr, rcols, rrow, lcols, lrow)?;
-                Ok(match (lv, rv) {
-                    (Value::Null, _) => Value::Null,
-                    (_, Value::Null) => Value::Null,
-                    (Value::Boolean(l), Value::Boolean(r)) => Value::Boolean(l == r),
-                    (Value::Integer(l), Value::Integer(r)) => Value::Boolean(l == r),
-                    (Value::Integer(l), Value::Float(r)) => Value::Boolean(l as f64 == r),
-                    (Value::Float(l), Value::Integer(r)) => Value::Boolean(l == r as f64),
-                    (Value::Float(l), Value::Float(r)) => Value::Boolean(l == r),
-                    (Value::String(l), Value::String(r)) => Value::Boolean(l == r),
-                    (l, r) => {
-                        return Err(Error::Internal(format!(
-                            "cannot compare expression {} and {}",
-                            l, r
-                        )))
-                    }
-                })
-            }
-        },
-        _ => Err(Error::Internal("Unexpected expression".into())),
     }
 }

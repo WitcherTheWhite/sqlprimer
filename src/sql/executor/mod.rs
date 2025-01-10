@@ -1,7 +1,7 @@
 use agg::Aggregate;
 use join::NestedLoopJoin;
 use mutation::{Delete, Insert, Update};
-use query::{Limit, Offset, Order, Projection, Scan};
+use query::{Filter, Limit, Offset, Order, Projection, Scan};
 use schema::CreateTable;
 
 use crate::error::Result;
@@ -50,6 +50,7 @@ impl<T: Transaction + 'static> dyn Executor<T> {
                 exprs,
                 group_by,
             } => Aggregate::new(Self::build(*source), exprs, group_by),
+            Node::Filter { source, predicate } => Filter::new(Self::build(*source), predicate),
         }
     }
 }

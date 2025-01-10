@@ -31,7 +31,7 @@ pub enum Node {
     // 扫描节点
     Scan {
         table_name: String,
-        filter: Option<(String, Expression)>,
+        filter: Option<Expression>,
     },
 
     // 更新节点
@@ -85,6 +85,12 @@ pub enum Node {
         exprs: Vec<(Expression, Option<String>)>,
         group_by: Option<Expression>,
     },
+
+    // 过滤节点
+    Filter {
+        source: Box<Node>,
+        predicate: Option<Expression>,
+    }
 }
 
 #[derive(Debug, PartialEq)]
