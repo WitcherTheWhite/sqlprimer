@@ -8,7 +8,7 @@ use super::{
     types::{Row, Value},
 };
 
-mod kv;
+pub mod kv;
 
 // 抽象的 SQL 引擎层定义
 pub trait Engine: Clone {
