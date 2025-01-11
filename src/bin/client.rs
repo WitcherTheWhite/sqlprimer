@@ -12,17 +12,17 @@ use rustyline::DefaultEditor;
 const RESPONSE_END: &str = "!!!end!!!";
 
 pub struct Client {
-    addr: SocketAddr,
+    stream: TcpStream,
 }
 
 impl Client {
-    pub fn new(addr: SocketAddr) -> Self {
-        Self { addr }
+    pub async fn new(addr: SocketAddr) -> Result<Self, Box<dyn Error>> {
+        let stream = TcpStream::connect(addr).await?;
+        Ok(Self { stream })
     }
 
-    pub async fn execute_sql(&self, sql_cmd: &str) -> Result<(), Box<dyn Error>> {
-        let mut stream = TcpStream::connect(self.addr).await?;
-        let (r, w) = stream.split();
+    pub async fn execute_sql(&mut self, sql_cmd: &str) -> Result<(), Box<dyn Error>> {
+        let (r, w) = self.stream.split();
         let mut sink = FramedWrite::new(w, LinesCodec::new());
         let mut stream = FramedRead::new(r, LinesCodec::new());
 
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
 
     let addr = addr.parse::<SocketAddr>()?;
-    let client = Client::new(addr);
+    let mut client = Client::new(addr).await?;
 
     let mut editor = DefaultEditor::new()?;
     loop {

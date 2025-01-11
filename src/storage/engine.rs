@@ -19,10 +19,16 @@ pub trait Engine {
     fn scan_prefix(&mut self, prefix: Vec<u8>) -> Self::EngineIterator<'_> {
         let start = Bound::Included(prefix.clone());
         let mut bound_prefix = prefix.clone();
-        if let Some(last) = bound_prefix.iter_mut().last() {
-            *last += 1;
+
+        // 255 时需要进位
+        let end = match bound_prefix.iter().rposition(|b| *b != 255) {
+            Some(pos) => {
+                bound_prefix[pos] += 1;
+                bound_prefix.truncate(pos + 1);
+                Bound::Excluded(bound_prefix)
+            }
+            None => Bound::Unbounded,
         };
-        let end = Bound::Excluded(bound_prefix);
 
         self.scan((start, end))
     }
@@ -33,7 +39,10 @@ pub trait EngineIterator: DoubleEndedIterator<Item = Result<(Vec<u8>, Vec<u8>)>>
 #[cfg(test)]
 mod tests {
     use super::Engine;
-    use crate::{error::Result, storage::{disk::DiskEngine, memory::MemoryEngine}};
+    use crate::{
+        error::Result,
+        storage::{disk::DiskEngine, memory::MemoryEngine},
+    };
     use std::{ops::Bound, path::PathBuf};
 
     // 测试点读的情况

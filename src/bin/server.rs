@@ -23,6 +23,22 @@ enum SqlRequest {
     TableInfo(String),
 }
 
+impl SqlRequest {
+    pub fn parse(cmd: &str) -> Self {
+        let cmd = cmd.to_uppercase();
+        if cmd == "SHOW TABLES" {
+            return SqlRequest::ListTable;
+        }
+        if cmd.starts_with("SHOW TABLE") {
+            let args = cmd.split_ascii_whitespace().collect::<Vec<_>>();
+            if args.len() == 3 {
+                return SqlRequest::TableInfo(args[2].to_lowercase());
+            }
+        }
+        SqlRequest::Sql(cmd)
+    }
+}
+
 pub struct ServerSession<E: sql::engine::Engine> {
     session: sql::engine::Session<E>,
 }
@@ -39,19 +55,26 @@ impl<E: sql::engine::Engine + 'static> ServerSession<E> {
         while let Some(result) = lines.next().await {
             match result {
                 Ok(line) => {
-                    let req = SqlRequest::Sql(line);
+                    let req = SqlRequest::parse(&line);
 
-                    let resp = match req {
-                        SqlRequest::Sql(sql) => self.session.execute(&sql),
-                        SqlRequest::ListTable => todo!(),
-                        SqlRequest::TableInfo(_) => todo!(),
+                    let response = match req {
+                        SqlRequest::Sql(sql) => match self.session.execute(&sql) {
+                            Ok(rs) => rs.to_string(),
+                            Err(e) => e.to_string(),
+                        },
+                        SqlRequest::ListTable => match self.session.get_table_names() {
+                            Ok(rs) => rs,
+                            Err(e) => e.to_string(),
+                        },
+                        SqlRequest::TableInfo(table_name) => {
+                            match self.session.get_table(table_name) {
+                                Ok(rs) => rs,
+                                Err(e) => e.to_string(),
+                            }
+                        }
                     };
 
                     // 发送执行结果
-                    let response = match resp {
-                        Ok(rs) => rs.to_string(),
-                        Err(e) => e.to_string(),
-                    };
                     if let Err(e) = lines.send(response.as_str()).await {
                         println!("error on sending response; error = {e:?}");
                     }
@@ -90,7 +113,7 @@ async fn main() -> Result<()> {
                 let mut ss = ServerSession::new(db.lock()?)?;
                 tokio::spawn(async move {
                     match ss.handle_request(socket).await {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => {
                             println!("internal server error {:?}", e)
                         }

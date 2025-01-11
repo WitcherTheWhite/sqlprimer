@@ -172,6 +172,18 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
         let key = Key::Row(table.name.clone(), id).encode()?;
         self.txn.delete(key)
     }
+
+    fn get_table_names(&self) -> Result<Vec<String>> {
+        let mut table_names = Vec::new();
+        let prefix = KeyPrefix::Table.encode()?;
+        let results = self.txn.scan_prefix(prefix)?;
+        for result in results {
+            let table: Table = bincode::deserialize(&result.value)?;
+            table_names.push(table.name);
+        }
+
+        Ok(table_names)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
