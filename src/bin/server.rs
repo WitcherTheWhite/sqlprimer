@@ -14,6 +14,7 @@ use tokio_stream::StreamExt;
 use tokio_util::codec::{Framed, LinesCodec};
 
 const DB_PATH: &str = "/tmp/sqldb-test/sqldb-log";
+const RESPONSE_END: &str = "!!!end!!!";
 
 /// Possible requests our clients can send us
 enum SqlRequest {
@@ -54,6 +55,9 @@ impl<E: sql::engine::Engine + 'static> ServerSession<E> {
                     if let Err(e) = lines.send(response.as_str()).await {
                         println!("error on sending response; error = {e:?}");
                     }
+                    if let Err(e) = lines.send(RESPONSE_END).await {
+                        println!("error on sending response end; error = {e:?}");
+                    }
                 }
                 Err(e) => {
                     println!("error on decoding from socket; error = {e:?}");
@@ -86,8 +90,10 @@ async fn main() -> Result<()> {
                 let mut ss = ServerSession::new(db.lock()?)?;
                 tokio::spawn(async move {
                     match ss.handle_request(socket).await {
-                        Ok(_) => todo!(),
-                        Err(_) => todo!(),
+                        Ok(_) => {},
+                        Err(e) => {
+                            println!("internal server error {:?}", e)
+                        }
                     }
                 });
             }

@@ -80,23 +80,58 @@ impl ResultSet {
     pub fn to_string(&self) -> String {
         match self {
             ResultSet::CreateTable { table_name } => format!("CREATE TABLE {}", table_name),
-            ResultSet::Insert { count } => format!("INSERT {} row", count),
+            // ResultSet::DropTable { table_name } => format!("DROP TABLE {}", table_name),
+            ResultSet::Insert { count } => format!("INSERT {} rows", count),
             ResultSet::Scan { columns, rows } => {
-                let columns = columns.join(" | ");
+                let rows_len = rows.len();
+
+                // 找到每一列最大的长度
+                let mut max_len = columns.iter().map(|c| c.len()).collect::<Vec<_>>();
+                for one_row in rows {
+                    for (i, v) in one_row.iter().enumerate() {
+                        if v.to_string().len() > max_len[i] {
+                            max_len[i] = v.to_string().len();
+                        }
+                    }
+                }
+
+                // 展示列
+                let columns = columns
+                    .iter()
+                    .zip(max_len.iter())
+                    .map(|(col, &len)| format!("{:width$}", col, width = len))
+                    .collect::<Vec<_>>()
+                    .join(" |");
+
+                // 展示分隔符
+                let sep = max_len
+                    .iter()
+                    .map(|v| format!("{}", "-".repeat(*v + 1)))
+                    .collect::<Vec<_>>()
+                    .join("+");
+
+                // 展示列数据
                 let rows = rows
                     .iter()
                     .map(|row| {
                         row.iter()
-                            .map(|v| v.to_string())
+                            .zip(max_len.iter())
+                            .map(|(v, &len)| format!("{:width$}", v.to_string(), width = len))
                             .collect::<Vec<_>>()
-                            .join(" | ")
+                            .join(" |")
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                format!("{}\n{}", columns, rows)
+
+                format!("{}\n{}\n{}\n({} rows)", columns, sep, rows, rows_len)
             }
             ResultSet::Update { count } => format!("UPDATE {} rows", count),
             ResultSet::Delete { count } => format!("DELETE {} rows", count),
+            // ResultSet::Begin { version } => format!("TRANSACTION {} BEGIN", version),
+            // ResultSet::Commit { version } => format!("TRANSACTION {} COMMIT", version),
+            // ResultSet::Rollback { version } => format!("TRANSACTION {} ROLLBACK", version),
+            // ResultSet::Explain { plan } => plan.to_string(),
         }
     }
 }
+
