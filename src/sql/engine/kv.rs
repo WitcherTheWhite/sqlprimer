@@ -60,6 +60,10 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
         self.txn.rollback()
     }
 
+    fn version(&self) -> u64 {
+        self.txn.version()
+    }
+
     fn create_row(&mut self, table_name: String, row: Row) -> Result<()> {
         let table = self.must_get_table(table_name.clone())?;
         // 检验行的有效性

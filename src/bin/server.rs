@@ -17,6 +17,7 @@ const DB_PATH: &str = "/tmp/sqldb-test/sqldb-log";
 const RESPONSE_END: &str = "!!!end!!!";
 
 /// Possible requests our clients can send us
+#[derive(Debug)]
 enum SqlRequest {
     Sql(String),
     ListTable,

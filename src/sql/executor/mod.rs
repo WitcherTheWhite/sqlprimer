@@ -74,6 +74,15 @@ pub enum ResultSet {
     Delete {
         count: usize,
     },
+    Begin {
+        version: u64,
+    },
+    Commit {
+        version: u64,
+    },
+    Rollback {
+        version: u64,
+    },
 }
 
 impl ResultSet {
@@ -127,11 +136,10 @@ impl ResultSet {
             }
             ResultSet::Update { count } => format!("UPDATE {} rows", count),
             ResultSet::Delete { count } => format!("DELETE {} rows", count),
-            // ResultSet::Begin { version } => format!("TRANSACTION {} BEGIN", version),
-            // ResultSet::Commit { version } => format!("TRANSACTION {} COMMIT", version),
-            // ResultSet::Rollback { version } => format!("TRANSACTION {} ROLLBACK", version),
+            ResultSet::Begin { version } => format!("TRANSACTION {} BEGIN", version),
+            ResultSet::Commit { version } => format!("TRANSACTION {} COMMIT", version),
+            ResultSet::Rollback { version } => format!("TRANSACTION {} ROLLBACK", version),
             // ResultSet::Explain { plan } => plan.to_string(),
         }
     }
 }
-

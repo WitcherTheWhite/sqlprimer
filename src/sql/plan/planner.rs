@@ -149,6 +149,9 @@ impl Planner {
                     filter: where_clause,
                 }),
             },
+            ast::Statement::Begin | ast::Statement::Commit | ast::Statement::Rollback => {
+                return Err(Error::Internal("unexpected transaction command".into()));
+            }
         })
     }
 

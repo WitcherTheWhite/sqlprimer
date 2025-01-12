@@ -116,6 +116,11 @@ impl<E: Engine> MvccTransaciton<E> {
         })
     }
 
+    // 获取版本号
+    pub fn version(&self) -> u64 {
+        self.state.version
+    }
+
     pub fn commit(&self) -> Result<()> {
         let mut engine = self.engine.lock()?;
 

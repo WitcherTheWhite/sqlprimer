@@ -36,6 +36,9 @@ pub enum Statement {
         table_name: String,
         where_clause: Option<Expression>,
     },
+    Begin,
+    Commit,
+    Rollback,
 }
 
 #[derive(Debug, PartialEq)]

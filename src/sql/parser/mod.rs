@@ -41,6 +41,9 @@ impl<'a> Parser<'a> {
             Some(Token::Keyword(Keyword::Insert)) => self.parse_insert(),
             Some(Token::Keyword(Keyword::Update)) => self.parse_update(),
             Some(Token::Keyword(Keyword::Delete)) => self.parse_delete(),
+            Some(Token::Keyword(Keyword::Begin)) => self.parse_transaction(),
+            Some(Token::Keyword(Keyword::Commit)) => self.parse_transaction(),
+            Some(Token::Keyword(Keyword::Rollback)) => self.parse_transaction(),
             Some(t) => Err(Error::Parse(format!("[Parser] Unexpected token {}", t))),
             None => Err(Error::Parse(format!("[Parser] Unexpected end of input"))),
         }
@@ -285,6 +288,15 @@ impl<'a> Parser<'a> {
         Ok(ast::Statement::Delete {
             table_name,
             where_clause: self.parse_where_clause()?,
+        })
+    }
+
+    fn parse_transaction(&mut self) -> Result<ast::Statement> {
+        Ok(match self.next()? {
+            Token::Keyword(Keyword::Begin) => ast::Statement::Begin,
+            Token::Keyword(Keyword::Commit) => ast::Statement::Commit,
+            Token::Keyword(Keyword::Rollback) => ast::Statement::Rollback,
+            _ => return Err(Error::Parse("unkonwn transcation command".into())),
         })
     }
 

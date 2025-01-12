@@ -2,7 +2,10 @@ use crate::error::{Error, Result};
 
 use super::{
     executor::ResultSet,
-    parser::{ast::Expression, Parser},
+    parser::{
+        ast::{self, Expression},
+        Parser,
+    },
     plan::Plan,
     schema::Table,
     types::{Row, Value},
@@ -19,6 +22,7 @@ pub trait Engine: Clone {
     fn session(&self) -> Result<Session<Self>> {
         Ok(Session {
             engine: self.clone(),
+            txn: None,
         })
     }
 }
@@ -28,6 +32,8 @@ pub trait Transaction {
     fn commmit(&self) -> Result<()>;
 
     fn rollback(&self) -> Result<()>;
+
+    fn version(&self) -> u64;
 
     fn create_row(&mut self, table: String, row: Row) -> Result<()>;
 
@@ -54,12 +60,44 @@ pub trait Transaction {
 
 pub struct Session<E: Engine> {
     engine: E,
+    txn: Option<E::Transaction>,
 }
 
 impl<E: Engine + 'static> Session<E> {
     // 执行客户端 SQL 语句
     pub fn execute(&mut self, sql: &str) -> Result<ResultSet> {
         match Parser::new(sql).parse()? {
+            ast::Statement::Begin if self.txn.is_some() => {
+                Err(Error::Internal("Already in transaction".into()))
+            }
+            ast::Statement::Commit | ast::Statement::Rollback if self.txn.is_none() => {
+                Err(Error::Internal("Not in transaction".into()))
+            }
+            ast::Statement::Begin => {
+                let txn = self.engine.begin()?;
+                let version = txn.version();
+                self.txn = Some(txn);
+                Ok(ResultSet::Begin { version })
+            }
+            ast::Statement::Commit => {
+                let mut version = 0;
+                if let Some(txn) = &self.txn {
+                    version = txn.version();
+                    txn.commmit()?;
+                    self.txn = None;
+                }
+                Ok(ResultSet::Commit { version })
+            }
+            ast::Statement::Rollback => {
+                let mut version = 0;
+                if let Some(txn) = &self.txn {
+                    version = txn.version();
+                    txn.rollback()?;
+                    self.txn = None;
+                }
+                Ok(ResultSet::Rollback { version })
+            }
+            stmt if self.txn.is_some() => Plan::build(stmt)?.execute(self.txn.as_mut().unwrap()),
             stmt => {
                 let mut txn = self.engine.begin()?;
                 // 构建 Plan，执行 SQL 语句
