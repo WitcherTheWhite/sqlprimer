@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::error::{Error, Result};
 
 use super::{
@@ -56,6 +58,26 @@ pub trait Transaction {
                 table_name
             )))
     }
+
+    // 获取索引
+    fn load_index(
+        &self,
+        table_name: &str,
+        col_name: &str,
+        col_value: &Value,
+    ) -> Result<HashSet<Value>>;
+
+    // 保存索引
+    fn save_index(
+        &self,
+        table_name: &str,
+        col_name: &str,
+        col_value: &Value,
+        index: HashSet<Value>,
+    ) -> Result<()>;
+    
+    // 根据 id 获取行
+    fn read_by_id(&self, table_name: &str, id: &Value) -> Result<Option<Row>>;
 }
 
 pub struct Session<E: Engine> {
@@ -97,11 +119,13 @@ impl<E: Engine + 'static> Session<E> {
                 }
                 Ok(ResultSet::Rollback { version })
             }
-            stmt if self.txn.is_some() => Plan::build(stmt)?.execute(self.txn.as_mut().unwrap()),
+            stmt if self.txn.is_some() => {
+                Plan::build(stmt, self.txn.as_mut().unwrap())?.execute(self.txn.as_mut().unwrap())
+            }
             stmt => {
                 let mut txn = self.engine.begin()?;
                 // 构建 Plan，执行 SQL 语句
-                match Plan::build(stmt)?.execute(&mut txn) {
+                match Plan::build(stmt, &mut txn)?.execute(&mut txn) {
                     Ok(result) => {
                         txn.commmit()?;
                         Ok(result)

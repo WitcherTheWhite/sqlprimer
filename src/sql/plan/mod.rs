@@ -8,7 +8,7 @@ use super::{
     engine::Transaction,
     executor::{Executor, ResultSet},
     parser::ast::{self, Expression, OrderDirection},
-    schema::Table,
+    schema::Table, types::Value,
 };
 
 mod planner;
@@ -90,15 +90,28 @@ pub enum Node {
     Filter {
         source: Box<Node>,
         predicate: Option<Expression>,
-    }
+    },
+
+    // 索引查询节点
+    IndexScan {
+        table_name: String,
+        field: String,
+        value: Value,
+    },
+
+    // 主键查询节点
+    PrimaryKeyScan {
+        table_name: String,
+        value: Value,
+    },
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Plan(pub Node);
 
 impl Plan {
-    pub fn build(stmt: ast::Statement) -> Result<Self> {
-        Planner::new().build(stmt)
+    pub fn build<T: Transaction>(stmt: ast::Statement, txn: &mut T) -> Result<Self> {
+        Planner::new(txn).build(stmt)
     }
 
     pub fn execute<T: Transaction + 'static>(self, txn: &mut T) -> Result<ResultSet> {
@@ -111,16 +124,19 @@ mod tests {
     use crate::{
         error::Result,
         sql::{
-            parser::{
+            engine::{kv::KVEngine, Engine}, parser::{
                 ast::{self, Expression},
                 Parser,
-            },
-            plan::{Node, Plan},
-        },
+            }, plan::{Node, Plan}
+        }, storage::disk::DiskEngine,
     };
 
     #[test]
     fn test_plan_create_table() -> Result<()> {
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut txn = kvengine.begin()?;
+
         let sql1 = "
         create table tbl1 (
             a int default 100,
@@ -130,7 +146,7 @@ mod tests {
         );
         ";
         let stmt1 = Parser::new(sql1).parse()?;
-        let p1 = Plan::build(stmt1);
+        let p1 = Plan::build(stmt1, &mut txn);
 
         let sql2 = "
         create            table tbl1 (
@@ -141,7 +157,7 @@ mod tests {
         );
         ";
         let stmt2 = Parser::new(sql2).parse()?;
-        let p2 = Plan::build(stmt2);
+        let p2 = Plan::build(stmt2, &mut txn);
         assert_eq!(p1, p2);
 
         Ok(())
@@ -149,9 +165,13 @@ mod tests {
 
     #[test]
     fn test_plan_insert() -> Result<()> {
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut txn = kvengine.begin()?;
+
         let sql1 = "insert into tbl1 values (1, 2, 3, 'a', true);";
         let stmt1 = Parser::new(sql1).parse()?;
-        let p1 = Plan::build(stmt1)?;
+        let p1 = Plan::build(stmt1, &mut txn)?;
         assert_eq!(
             p1,
             Plan(Node::Insert {
@@ -169,7 +189,7 @@ mod tests {
 
         let sql2 = "insert into tbl2 (c1, c2, c3) values (3, 'a', true),(4, 'b', false);";
         let stmt2 = Parser::new(sql2).parse()?;
-        let p2 = Plan::build(stmt2)?;
+        let p2 = Plan::build(stmt2, &mut txn)?;
         assert_eq!(
             p2,
             Plan(Node::Insert {
@@ -195,9 +215,13 @@ mod tests {
 
     #[test]
     fn test_plan_select() -> Result<()> {
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut txn = kvengine.begin()?;
+
         let sql = "select * from tbl1;";
         let stmt = Parser::new(sql).parse()?;
-        let p = Plan::build(stmt)?;
+        let p = Plan::build(stmt, &mut txn)?;
         assert_eq!(
             p,
             Plan(Node::Scan {

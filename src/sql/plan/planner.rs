@@ -1,6 +1,7 @@
 use crate::{
     error::{Error, Result},
     sql::{
+        engine::Transaction,
         parser::ast::{self, Expression},
         schema::{self, Table},
         types::Value,
@@ -9,11 +10,13 @@ use crate::{
 
 use super::{Node, Plan};
 
-pub struct Planner;
+pub struct Planner<'a, T: Transaction> {
+    txn: &'a mut T,
+}
 
-impl Planner {
-    pub fn new() -> Self {
-        Self {}
+impl<'a, T: Transaction> Planner<'a, T> {
+    pub fn new(txn: &'a mut T) -> Self {
+        Self { txn }
     }
 
     pub fn build(&self, stmt: ast::Statement) -> Result<Plan> {
@@ -41,7 +44,7 @@ impl Planner {
                                 nullable,
                                 default,
                                 primary_key: c.primary_key,
-                                index: true,
+                                index: c.index && !c.primary_key,
                             }
                         })
                         .collect(),
@@ -134,10 +137,7 @@ impl Planner {
                 where_clause,
             } => Node::Update {
                 table_name: table_name.clone(),
-                source: Box::new(Node::Scan {
-                    table_name: table_name,
-                    filter: where_clause,
-                }),
+                source: Box::new(self.build_scan(table_name, where_clause)?),
                 columns,
             },
             ast::Statement::Delete {
@@ -145,10 +145,7 @@ impl Planner {
                 where_clause,
             } => Node::Delete {
                 table_name: table_name.clone(),
-                source: Box::new(Node::Scan {
-                    table_name: table_name,
-                    filter: where_clause,
-                }),
+                source: Box::new(self.build_scan(table_name, where_clause)?),
             },
             ast::Statement::Begin | ast::Statement::Commit | ast::Statement::Rollback => {
                 return Err(Error::Internal("unexpected transaction command".into()));
@@ -158,10 +155,7 @@ impl Planner {
 
     fn build_from_item(&self, item: ast::FromItem, filter: Option<Expression>) -> Result<Node> {
         match item {
-            ast::FromItem::Table { name } => Ok(Node::Scan {
-                table_name: name,
-                filter: filter,
-            }),
+            ast::FromItem::Table { name } => Self::build_scan(&self, name, filter),
             ast::FromItem::Join {
                 left,
                 right,
@@ -186,6 +180,60 @@ impl Planner {
                     outer,
                 })
             }
+        }
+    }
+
+    fn build_scan(&self, table_name: String, filter: Option<Expression>) -> Result<Node> {
+        Ok(match Self::parse_scan_filter(filter.clone()) {
+            Some((field, value)) => {
+                let table = self.txn.must_get_table(table_name.clone())?;
+
+                // 判断是否是主键
+                if table
+                    .columns
+                    .iter()
+                    .position(|c| c.name == field && c.primary_key)
+                    .is_some()
+                {
+                    return Ok(Node::PrimaryKeyScan { table_name, value });
+                }
+
+                match table
+                    .columns
+                    .iter()
+                    .position(|c| c.name == field && c.index)
+                {
+                    Some(_) => Node::IndexScan {
+                        table_name,
+                        field,
+                        value,
+                    },
+                    None => Node::Scan { table_name, filter },
+                }
+            }
+            None => Node::Scan { table_name, filter },
+        })
+    }
+
+    fn parse_scan_filter(filter: Option<Expression>) -> Option<(String, Value)> {
+        match filter {
+            Some(expr) => match expr {
+                Expression::Filed(f) => Some((f, Value::Null)),
+                Expression::Consts(c) => {
+                    Some(("".into(), Value::from_expression(Expression::Consts(c))))
+                }
+                Expression::Operation(operation) => match operation {
+                    ast::Operation::Equal(l, r) => {
+                        let lv = Self::parse_scan_filter(Some(*l));
+                        let rv = Self::parse_scan_filter(Some(*r));
+
+                        Some((lv.unwrap().0, rv.unwrap().1))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            },
+            None => None,
         }
     }
 }

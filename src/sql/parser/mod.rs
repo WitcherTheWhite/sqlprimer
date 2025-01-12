@@ -387,6 +387,7 @@ impl<'a> Parser<'a> {
             nullable: None,
             default: None,
             primary_key: false,
+            index: false,
         };
 
         // 解析是否为空和默认值
@@ -401,6 +402,9 @@ impl<'a> Parser<'a> {
                 Keyword::Primary => {
                     self.next_expect(Token::Keyword(Keyword::Key))?;
                     column.primary_key = true;
+                }
+                Keyword::Index => {
+                    column.index = true;
                 }
                 k => return Err(Error::Parse(format!("[Parser] Unexpected keyword {}", k))),
             }

@@ -77,7 +77,7 @@ impl Table {
         Ok(row[pos].clone())
     }
 
-    pub fn get_col_indedx(&self, col_name: &str) -> Result<usize> {
+    pub fn get_col_index(&self, col_name: &str) -> Result<usize> {
         self.columns
             .iter()
             .position(|c| c.name == col_name)

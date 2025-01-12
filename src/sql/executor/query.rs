@@ -38,6 +38,78 @@ impl<T: Transaction> Executor<T> for Scan {
     }
 }
 
+pub struct IndexScan {
+    table_name: String,
+    field: String,
+    value: Value,
+}
+
+impl IndexScan {
+    pub fn new(table_name: String, field: String, value: Value) -> Box<Self> {
+        Box::new(Self {
+            table_name,
+            field,
+            value,
+        })
+    }
+}
+
+impl<T: Transaction> Executor<T> for IndexScan {
+    fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
+        let table = txn.must_get_table(self.table_name.clone())?;
+        let index = txn.load_index(&self.table_name, &self.field, &self.value)?;
+        let mut pks = index.iter().collect::<Vec<_>>();
+        pks.sort_by(|v1, v2| match v1.partial_cmp(v2) {
+            Some(ord) => ord,
+            None => Ordering::Equal,
+        });
+
+        let mut rows = Vec::new();
+        for pk in pks {
+            if let Some(row) = txn.read_by_id(&self.table_name, pk)? {
+                rows.push(row);
+            }
+        }
+
+        Ok(ResultSet::Scan {
+            columns: table.columns.into_iter().map(|c| c.name.clone()).collect(),
+            rows,
+        })
+    }
+}
+
+pub struct PrimaryKeyScan {
+    table_name: String,
+    value: Value,
+}
+
+impl PrimaryKeyScan {
+    pub fn new(table_name: String, value: Value) -> Box<Self> {
+        Box::new(Self { table_name, value })
+    }
+}
+
+impl<T: Transaction> Executor<T> for PrimaryKeyScan {
+    fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
+        let table = txn.must_get_table(self.table_name.clone())?;
+        let mut rows = Vec::new();
+        let mut id = self.value.clone();
+        if let Value::Float(v) = self.value {
+            if v.fract() == 0.0 {
+                id = Value::Integer(v as i64);
+            }
+        }
+        if let Some(row) = txn.read_by_id(&self.table_name, &id)? {
+            rows.push(row);
+        }
+
+        Ok(ResultSet::Scan {
+            columns: table.columns.into_iter().map(|c| c.name.clone()).collect(),
+            rows,
+        })
+    }
+}
+
 pub struct Order<T: Transaction> {
     source: Box<dyn Executor<T>>,
     order_by: Vec<(String, OrderDirection)>,

@@ -119,10 +119,12 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
 
     fn scan_table(&self, table_name: String, filter: Option<Expression>) -> Result<Vec<Row>> {
         let table = self.must_get_table(table_name.clone())?;
+        let mut rows = Vec::new();
+
+        // 扫描全表
         let prefix = KeyPrefix::Row(table_name.clone()).encode()?;
         let results = self.txn.scan_prefix(prefix)?;
 
-        let mut rows = Vec::new();
         for result in results {
             let row: Row = bincode::deserialize(&result.value)?;
             if let Some(expr) = &filter {
@@ -242,9 +244,7 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
 
         Ok(table_names)
     }
-}
 
-impl<E: StorageEngine> KVTransaction<E> {
     fn load_index(
         &self,
         table_name: &str,

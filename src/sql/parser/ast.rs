@@ -54,6 +54,7 @@ pub struct Column {
     pub nullable: Option<bool>,
     pub default: Option<Expression>,
     pub primary_key: bool,
+    pub index: bool,
 }
 
 // 表达式定义
