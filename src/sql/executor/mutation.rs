@@ -162,7 +162,7 @@ impl<T: Transaction> Executor<T> for Delete<T> {
                 let mut deleted = 0;
                 let table = txn.must_get_table(self.table_name)?;
                 for row in rows {
-                    txn.delete_row(&table, row)?;
+                    txn.delete_row(&table, &table.get_primary_key(&row)?)?;
                     deleted += 1;
                 }
                 return Ok(ResultSet::Delete { count: deleted });

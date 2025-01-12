@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -99,6 +101,19 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
         let value = bincode::serialize(&row)?;
         self.txn.set(id, value)?;
 
+        // 维护索引
+        let index_cols = table
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|c| c.1.index)
+            .collect::<Vec<_>>();
+        for (i, index_col) in index_cols {
+            let mut index = self.load_index(&table_name, &index_col.name, &row[i])?;
+            index.insert(pk.clone());
+            self.save_index(&table_name, &index_col.name, &row[i], index)?;
+        }
+
         Ok(())
     }
 
@@ -158,10 +173,35 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
 
     fn update_row(&mut self, table: &Table, id: &Value, row: Row) -> Result<()> {
         let new_pk = table.get_primary_key(&row)?;
-        // 如果主键更新，需要删除之前的数据
+        // 更新了主键，则删除旧的数据，加一条新的数据
         if *id != new_pk {
-            let key = Key::Row(table.name.clone(), id.clone()).encode()?;
-            self.txn.delete(key)?;
+            self.delete_row(table, id)?;
+            self.create_row(table.name.clone(), row)?;
+            return Ok(());
+        }
+
+        // 维护索引
+        let index_cols = table
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.index)
+            .collect::<Vec<_>>();
+        for (i, index_col) in index_cols {
+            if let Some(old_row) = self.read_by_id(&table.name, id)? {
+                // 索引列没有被更新
+                if old_row[i] == row[i] {
+                    continue;
+                }
+
+                let mut old_index = self.load_index(&table.name, &index_col.name, &old_row[i])?;
+                old_index.remove(id);
+                self.save_index(&table.name, &index_col.name, &old_row[i], old_index)?;
+
+                let mut new_index = self.load_index(&table.name, &index_col.name, &row[i])?;
+                new_index.insert(id.clone());
+                self.save_index(&table.name, &index_col.name, &row[i], new_index)?;
+            }
         }
 
         let key = Key::Row(table.name.clone(), new_pk).encode()?;
@@ -171,9 +211,23 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
         Ok(())
     }
 
-    fn delete_row(&mut self, table: &Table, row: Row) -> Result<()> {
-        let id = table.get_primary_key(&row)?;
-        let key = Key::Row(table.name.clone(), id).encode()?;
+    fn delete_row(&mut self, table: &Table, id: &Value) -> Result<()> {
+        // 维护索引
+        let index_cols = table
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|c| c.1.index)
+            .collect::<Vec<_>>();
+        if let Some(row) = self.read_by_id(&table.name, id)? {
+            for (i, index_col) in index_cols {
+                let mut index = self.load_index(&table.name, &index_col.name, &row[i])?;
+                index.remove(id);
+                self.load_index(&table.name, &index_col.name, &row[i])?;
+            }
+        }
+
+        let key = Key::Row(table.name.clone(), id.clone()).encode()?;
         self.txn.delete(key)
     }
 
@@ -190,10 +244,53 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
     }
 }
 
+impl<E: StorageEngine> KVTransaction<E> {
+    fn load_index(
+        &self,
+        table_name: &str,
+        col_name: &str,
+        col_val: &Value,
+    ) -> Result<HashSet<Value>> {
+        let key = Key::Index(table_name.into(), col_name.into(), col_val.clone()).encode()?;
+        Ok(self
+            .txn
+            .get(key)?
+            .map(|v| bincode::deserialize(&v))
+            .transpose()?
+            .unwrap_or_default())
+    }
+
+    fn save_index(
+        &self,
+        table_name: &str,
+        col_name: &str,
+        col_val: &Value,
+        index: HashSet<Value>,
+    ) -> Result<()> {
+        let key = Key::Index(table_name.into(), col_name.into(), col_val.clone()).encode()?;
+        if index.is_empty() {
+            self.txn.delete(key)
+        } else {
+            self.txn.set(key, bincode::serialize(&index)?)
+        }
+    }
+
+    fn read_by_id(&self, table_name: &str, id: &Value) -> Result<Option<Row>> {
+        let key = Key::Row(table_name.into(), id.clone()).encode()?;
+        let val = self
+            .txn
+            .get(key)?
+            .map(|v| bincode::deserialize(&v))
+            .transpose()?;
+        Ok(val)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 enum Key {
     Table(String),
     Row(String, Value),
+    Index(String, String, Value),
 }
 
 impl Key {

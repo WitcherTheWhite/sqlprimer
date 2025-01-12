@@ -41,6 +41,7 @@ impl Planner {
                                 nullable,
                                 default,
                                 primary_key: c.primary_key,
+                                index: true,
                             }
                         })
                         .collect(),
