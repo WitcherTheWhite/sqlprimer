@@ -8,7 +8,8 @@ use super::{
     engine::Transaction,
     executor::{Executor, ResultSet},
     parser::ast::{self, Expression, OrderDirection},
-    schema::Table, types::Value,
+    schema::Table,
+    types::Value,
 };
 
 mod planner;
@@ -79,6 +80,14 @@ pub enum Node {
         outer: bool,
     },
 
+    // 哈希 join 节点
+    HashJoin {
+        left: Box<Node>,
+        right: Box<Node>,
+        predicate: Option<Expression>,
+        outer: bool,
+    },
+
     // 聚集节点
     Aggregate {
         source: Box<Node>,
@@ -124,11 +133,14 @@ mod tests {
     use crate::{
         error::Result,
         sql::{
-            engine::{kv::KVEngine, Engine}, parser::{
+            engine::{kv::KVEngine, Engine},
+            parser::{
                 ast::{self, Expression},
                 Parser,
-            }, plan::{Node, Plan}
-        }, storage::disk::DiskEngine,
+            },
+            plan::{Node, Plan},
+        },
+        storage::disk::DiskEngine,
     };
 
     #[test]

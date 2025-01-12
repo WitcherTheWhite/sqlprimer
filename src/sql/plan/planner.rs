@@ -173,12 +173,21 @@ impl<'a, T: Transaction> Planner<'a, T> {
                     _ => true,
                 };
 
-                Ok(Node::NestedLoopJoin {
-                    left: Box::new(self.build_from_item(*left, filter.clone())?),
-                    right: Box::new(self.build_from_item(*right, filter)?),
-                    predicate,
-                    outer,
-                })
+                if join_type == ast::JoinType::Cross {
+                    Ok(Node::NestedLoopJoin {
+                        left: Box::new(self.build_from_item(*left, filter.clone())?),
+                        right: Box::new(self.build_from_item(*right, filter)?),
+                        predicate,
+                        outer,
+                    })
+                } else {
+                    Ok(Node::HashJoin {
+                        left: Box::new(self.build_from_item(*left, filter.clone())?),
+                        right: Box::new(self.build_from_item(*right, filter)?),
+                        predicate,
+                        outer,
+                    })
+                }
             }
         }
     }
