@@ -179,15 +179,15 @@ impl<'a> Parser<'a> {
         Ok(match self.next()? {
             Token::Equal => Expression::Operation(Operation::Equal(
                 Box::new(left),
-                Box::new(self.parse_expression()?),
+                Box::new(self.compute_math_operator(1)?),
             )),
             Token::GreaterThan => Expression::Operation(Operation::GreaterThan(
                 Box::new(left),
-                Box::new(self.parse_expression()?),
+                Box::new(self.compute_math_operator(1)?),
             )),
             Token::LessThan => Expression::Operation(Operation::LessThan(
                 Box::new(left),
-                Box::new(self.parse_expression()?),
+                Box::new(self.compute_math_operator(1)?),
             )),
             _ => return Err(Error::Internal("unexpected token".into())),
         })
@@ -450,6 +450,11 @@ impl<'a> Parser<'a> {
                     ast::Expression::Filed(ident)
                 }
             }
+            Token::OpenParen => {
+                let expr = self.compute_math_operator(1)?;
+                self.next_expect(Token::CloseParen)?;
+                expr
+            }
             Token::Number(n) => {
                 if n.chars().all(|c| c.is_ascii_digit()) {
                     // 整数
@@ -470,6 +475,29 @@ impl<'a> Parser<'a> {
                 )))
             }
         })
+    }
+
+    // 计算数学表达式
+    fn compute_math_operator(&mut self, min_prec: u8) -> Result<ast::Expression> {
+        let mut left = self.parse_expression()?;
+        loop {
+            let token = match self.peek()? {
+                Some(t) => t,
+                None => break,
+            };
+
+            if !token.is_operator() || token.precedence() < min_prec {
+                break;
+            }
+
+            let next_prec = token.precedence() + 1;
+            self.next()?;
+
+            let right = self.compute_math_operator(next_prec)?;
+            left = token.compute_expr(left, right)?;
+        }
+
+        Ok(left)
     }
 
     fn peek(&mut self) -> Result<Option<Token>> {

@@ -2,6 +2,8 @@ use std::{fmt::Display, iter::Peekable, str::Chars};
 
 use crate::error::{Error, Result};
 
+use super::ast::{Consts, Expression};
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     // 关键字
@@ -34,6 +36,57 @@ pub enum Token {
     GreaterThan,
     // 小于 <
     LessThan,
+}
+
+impl Token {
+    pub fn is_operator(&self) -> bool {
+        match self {
+            Token::Plus | Token::Minus | Token::Asterisk | Token::Slash => true,
+            _ => false,
+        }
+    }
+
+    // 获取运算符优先级
+    pub fn precedence(&self) -> u8 {
+        match self {
+            Token::Plus | Token::Minus => 1,
+            Token::Asterisk | Token::Slash => 2,
+            _ => 0,
+        }
+    }
+
+    // 根据运算符进行计算
+    pub fn compute_expr(&self, l: Expression, r: Expression) -> Result<Expression> {
+        let val = match (l, r) {
+            (Expression::Consts(c1), Expression::Consts(c2)) => match (c1, c2) {
+                (super::ast::Consts::Integer(l), super::ast::Consts::Integer(r)) => {
+                    self.compute(l as f64, r as f64)?
+                }
+                (super::ast::Consts::Integer(l), super::ast::Consts::Float(r)) => {
+                    self.compute(l as f64, r)?
+                }
+                (super::ast::Consts::Float(l), super::ast::Consts::Integer(r)) => {
+                    self.compute(l, r as f64)?
+                }
+                (super::ast::Consts::Float(l), super::ast::Consts::Float(r)) => {
+                    self.compute(l, r)?
+                }
+                _ => return Err(Error::Parse("cannot compute the expresssion".into())),
+            },
+            _ => return Err(Error::Parse("cannot compute the expresssion".into())),
+        };
+        Ok(Expression::Consts(Consts::Float(val)))
+    }
+
+    fn compute(&self, l: f64, r: f64) -> Result<f64> {
+        Ok(match self {
+            Token::Asterisk => l * r,
+            Token::Plus => l + r,
+            Token::Minus => l - r,
+            Token::Slash => l / r,
+            _ => return Err(Error::Parse("cannot compute the expresssion".into())),
+        })
+    }
 }
 
 impl Display for Token {
