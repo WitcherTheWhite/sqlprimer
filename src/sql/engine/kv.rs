@@ -284,6 +284,21 @@ impl<E: StorageEngine> Transaction for KVTransaction<E> {
             .transpose()?;
         Ok(val)
     }
+
+    fn drop_table(&mut self, table_name: String) -> Result<()> {
+        // 删除所有的行数据
+        let row_prefix = KeyPrefix::Row(table_name.clone()).encode()?;
+        let results = self.txn.scan_prefix(row_prefix)?;
+        for result in results {
+            self.txn.delete(result.key)?;
+        }
+
+        // 删除表的元信息
+        let key = Key::Table(table_name).encode()?;
+        self.txn.delete(key)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -403,6 +418,24 @@ mod tests {
         let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
         let mut s = kvengine.session()?;
         setup_table(&mut s)?;
+        std::fs::remove_dir_all(p.parent().unwrap())?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_drop_table() -> Result<()> {
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut s = kvengine.session()?;
+        setup_table(&mut s)?;
+
+        // t1
+        s.execute("insert into t1 (a) values (1);")?;
+        s.execute("insert into t1 values (2, 'a', 2);")?;
+        s.execute("insert into t1(b,a) values ('b', 3);")?;
+
+        s.execute("drop table t1;")?;
+
         std::fs::remove_dir_all(p.parent().unwrap())?;
         Ok(())
     }
@@ -846,6 +879,79 @@ mod tests {
             ResultSet::Scan { columns, rows } => {
                 assert_eq!(2, columns.len());
                 assert_eq!(3, rows.len());
+            }
+            _ => unreachable!(),
+        }
+
+        std::fs::remove_dir_all(p.parent().unwrap())?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_index() -> Result<()> {
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut s = kvengine.session()?;
+        s.execute("create table t (a int primary key, b text index, c float index, d bool);")?;
+        s.execute("insert into t values (1, 'a', 1.1, true);")?;
+        s.execute("insert into t values (2, 'b', 2.1, true);")?;
+        s.execute("insert into t values (3, 'a', 3.2, false);")?;
+        s.execute("insert into t values (4, 'c', 1.1, true);")?;
+        s.execute("insert into t values (5, 'd', 2.1, false);")?;
+
+        s.execute("delete from t where a = 4;")?;
+
+        match s.execute("select * from t where c = 1.1;")? {
+            ResultSet::Scan { columns, rows } => {
+                assert_eq!(columns.len(), 4);
+                assert_eq!(rows.len(), 1);
+            }
+            _ => unreachable!(),
+        }
+
+        std::fs::remove_dir_all(p.parent().unwrap())?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_primary_key_scan() -> Result<()> {
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut s = kvengine.session()?;
+        s.execute("create table t (a int primary key, b text index, c float index, d bool);")?;
+        s.execute("insert into t values (1, 'a', 1.1, true);")?;
+        s.execute("insert into t values (2, 'b', 2.1, true);")?;
+        s.execute("insert into t values (3, 'a', 3.2, false);")?;
+
+        match s.execute("select * from t where a = 2;")? {
+            ResultSet::Scan { columns, rows } => {
+                assert_eq!(columns.len(), 4);
+                assert_eq!(rows.len(), 1);
+            }
+            _ => unreachable!(),
+        }
+
+        std::fs::remove_dir_all(p.parent().unwrap())?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_hash_join() -> Result<()> {
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        let kvengine = KVEngine::new(DiskEngine::new(p.clone())?);
+        let mut s = kvengine.session()?;
+        s.execute("create table t1 (a int primary key);")?;
+        s.execute("create table t2 (b int primary key);")?;
+        s.execute("create table t3 (c int primary key);")?;
+
+        s.execute("insert into t1 values (1), (2), (3);")?;
+        s.execute("insert into t2 values (2), (3), (4);")?;
+        s.execute("insert into t3 values (3), (8), (9);")?;
+
+        match s.execute("select * from t1 join t2 on a = b join t3 on a = c;")? {
+            ResultSet::Scan { columns, rows } => {
+                assert_eq!(columns.len(), 3);
+                assert_eq!(rows.len(), 1);
             }
             _ => unreachable!(),
         }

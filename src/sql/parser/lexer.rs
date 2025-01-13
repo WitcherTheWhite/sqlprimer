@@ -106,6 +106,7 @@ pub enum Keyword {
     Rollback,
     Index,
     Explain,
+    Drop,
 }
 
 impl Keyword {
@@ -157,6 +158,7 @@ impl Keyword {
             "ROLLBACK" => Keyword::Rollback,
             "INDEX" => Keyword::Index,
             "EXPLAIN" => Keyword::Explain,
+            "DROP" => Keyword::Drop,
             _ => return None,
         })
     }
@@ -209,6 +211,7 @@ impl Keyword {
             Keyword::Rollback => "ROLLBACK",
             Keyword::Index => "INDEX",
             Keyword::Explain => "EXPLAIN",
+            Keyword::Drop => "DROP",
         }
     }
 }

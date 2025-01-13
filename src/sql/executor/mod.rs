@@ -2,7 +2,7 @@ use agg::Aggregate;
 use join::{HashJoin, NestedLoopJoin};
 use mutation::{Delete, Insert, Update};
 use query::{Filter, IndexScan, Limit, Offset, Order, PrimaryKeyScan, Projection, Scan};
-use schema::CreateTable;
+use schema::{CreateTable, DropTable};
 
 use crate::error::Result;
 
@@ -63,6 +63,7 @@ impl<T: Transaction + 'static> dyn Executor<T> {
                 predicate,
                 outer,
             } => HashJoin::new(Self::build(*left), Self::build(*right), predicate, outer),
+            Node::DropTable { table_name } => DropTable::new(table_name),
         }
     }
 }
@@ -98,13 +99,16 @@ pub enum ResultSet {
     Explain {
         plan: String,
     },
+    DropTable {
+        table_name: String,
+    },
 }
 
 impl ResultSet {
     pub fn to_string(&self) -> String {
         match self {
             ResultSet::CreateTable { table_name } => format!("CREATE TABLE {}", table_name),
-            // ResultSet::DropTable { table_name } => format!("DROP TABLE {}", table_name),
+            ResultSet::DropTable { table_name } => format!("DROP TABLE {}", table_name),
             ResultSet::Insert { count } => format!("INSERT {} rows", count),
             ResultSet::Scan { columns, rows } => {
                 let rows_len = rows.len();

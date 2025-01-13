@@ -113,6 +113,11 @@ pub enum Node {
         table_name: String,
         value: Value,
     },
+
+    // Drop 节点
+    DropTable {
+        table_name: String,
+    },
 }
 
 impl Display for Node {
@@ -146,9 +151,9 @@ impl Node {
             Node::CreateTable { schema } => {
                 write!(f, "Create Table {}", schema.name)
             }
-            // Node::DropTable { name } => {
-            //     write!(f, "Drop Table {}", name)
-            // }
+            Node::DropTable { table_name } => {
+                write!(f, "Drop Table {}", table_name)
+            }
             Node::Insert {
                 table_name,
                 columns: _,

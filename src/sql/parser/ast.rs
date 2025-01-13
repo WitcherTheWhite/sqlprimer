@@ -42,6 +42,9 @@ pub enum Statement {
     Explain {
         stmt: Box<Statement>,
     },
+    DropTable {
+        table_name: String,
+    },
 }
 
 #[derive(Debug, PartialEq)]

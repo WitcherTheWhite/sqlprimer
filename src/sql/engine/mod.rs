@@ -59,6 +59,8 @@ pub trait Transaction {
             )))
     }
 
+    fn drop_table(&mut self, table_name: String) -> Result<()>;
+
     // 获取索引
     fn load_index(
         &self,

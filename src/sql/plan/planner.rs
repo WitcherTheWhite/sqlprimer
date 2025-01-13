@@ -153,6 +153,7 @@ impl<'a, T: Transaction> Planner<'a, T> {
             ast::Statement::Explain { stmt: _ } => {
                 return Err(Error::Internal("unexpected explain command".into()));
             }
+            ast::Statement::DropTable { table_name } => Node::DropTable { table_name },
         })
     }
 

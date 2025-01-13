@@ -45,6 +45,7 @@ impl<'a> Parser<'a> {
             Some(Token::Keyword(Keyword::Commit)) => self.parse_transaction(),
             Some(Token::Keyword(Keyword::Rollback)) => self.parse_transaction(),
             Some(Token::Keyword(Keyword::Explain)) => self.parse_explain(),
+            Some(Token::Keyword(Keyword::Drop)) => self.parse_drop(),
             Some(t) => Err(Error::Parse(format!("[Parser] Unexpected token {}", t))),
             None => Err(Error::Parse(format!("[Parser] Unexpected end of input"))),
         }
@@ -314,6 +315,14 @@ impl<'a> Parser<'a> {
         Ok(ast::Statement::Explain {
             stmt: Box::new(stmt),
         })
+    }
+
+    fn parse_drop(&mut self) -> Result<ast::Statement> {
+        self.next_expect(Token::Keyword(Keyword::Drop))?;
+        self.next_expect(Token::Keyword(Keyword::Table))?;
+        let table_name = self.next_ident()?;
+
+        Ok(ast::Statement::DropTable { table_name })
     }
 
     fn parse_where_clause(&mut self) -> Result<Option<Expression>> {
