@@ -150,6 +150,9 @@ impl<'a, T: Transaction> Planner<'a, T> {
             ast::Statement::Begin | ast::Statement::Commit | ast::Statement::Rollback => {
                 return Err(Error::Internal("unexpected transaction command".into()));
             }
+            ast::Statement::Explain { stmt: _ } => {
+                return Err(Error::Internal("unexpected explain command".into()));
+            }
         })
     }
 

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 
 use planner::Planner;
 
@@ -113,6 +113,179 @@ pub enum Node {
         table_name: String,
         value: Value,
     },
+}
+
+impl Display for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.format(f, "", true)
+    }
+}
+
+impl Node {
+    fn format(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        prefix: &str,
+        root: bool,
+    ) -> std::fmt::Result {
+        if !root {
+            writeln!(f)?;
+        } else {
+            writeln!(f, "           SQL PLAN           ")?;
+            writeln!(f, "------------------------------")?;
+        }
+
+        let prefix = if prefix.is_empty() {
+            "  ->  ".to_string()
+        } else {
+            write!(f, "{}", prefix)?;
+            format!("  {}", prefix)
+        };
+
+        match self {
+            Node::CreateTable { schema } => {
+                write!(f, "Create Table {}", schema.name)
+            }
+            // Node::DropTable { name } => {
+            //     write!(f, "Drop Table {}", name)
+            // }
+            Node::Insert {
+                table_name,
+                columns: _,
+                values: _,
+            } => {
+                write!(f, "Insert Into {}", table_name)
+            }
+            Node::Scan { table_name, filter } => {
+                write!(f, "Seq Scan On {}", table_name)?;
+                if let Some(filter) = filter {
+                    write!(f, " ({})", filter)?;
+                }
+                Ok(())
+            }
+            Node::Update {
+                table_name,
+                source,
+                columns: _,
+            } => {
+                write!(f, "Update On {}", table_name)?;
+                (*source).format(f, &prefix, false)
+            }
+            Node::Delete { table_name, source } => {
+                write!(f, "Delete On {}", table_name)?;
+                (*source).format(f, &prefix, false)
+            }
+            Node::Order { source, order_by } => {
+                let desc = order_by
+                    .iter()
+                    .map(|c| {
+                        format!(
+                            "{} {}",
+                            c.0,
+                            if c.1 == OrderDirection::Asc {
+                                "asc"
+                            } else {
+                                "desc"
+                            }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                write!(f, "Order By ({})", desc)?;
+                (*source).format(f, &prefix, false)
+            }
+            Node::Limit { source, limit } => {
+                write!(f, "Limit {}", limit)?;
+                (*source).format(f, &prefix, false)
+            }
+            Node::Offset { source, offset } => {
+                write!(f, "Offset {}", offset)?;
+                (*source).format(f, &prefix, false)
+            }
+            Node::Projection { source, select } => {
+                let desc = select
+                    .iter()
+                    .map(|(e, alias)| {
+                        format!(
+                            "{}{}",
+                            e,
+                            if alias.is_some() {
+                                format!(" as {}", alias.clone().unwrap())
+                            } else {
+                                "".into()
+                            }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "Projection ({})", desc)?;
+                (*source).format(f, &prefix, false)
+            }
+            Node::NestedLoopJoin {
+                left,
+                right,
+                predicate,
+                outer: _,
+            } => {
+                write!(f, "Nested Loop Join")?;
+                if let Some(expr) = predicate {
+                    write!(f, "({})", expr)?;
+                }
+                (*left).format(f, &prefix, false)?;
+                (*right).format(f, &prefix, false)
+            }
+            Node::HashJoin {
+                left,
+                right,
+                predicate,
+                outer: _,
+            } => {
+                write!(f, "Hash Join")?;
+                if let Some(expr) = predicate {
+                    write!(f, "({})", expr)?;
+                }
+                (*left).format(f, &prefix, false)?;
+                (*right).format(f, &prefix, false)
+            }
+            Node::Aggregate {
+                source,
+                exprs,
+                group_by: _,
+            } => {
+                let desc = exprs
+                    .iter()
+                    .map(|(e, alias)| {
+                        format!(
+                            "{}{}",
+                            e,
+                            if alias.is_some() {
+                                format!(" as {}", alias.clone().unwrap())
+                            } else {
+                                "".into()
+                            }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "Aggregate ({})", desc)?;
+                (*source).format(f, &prefix, false)
+            }
+            Node::Filter { source, predicate } => {
+                write!(f, "Filter ({})", predicate.clone().unwrap())?;
+                (*source).format(f, &prefix, false)
+            }
+            Node::IndexScan {
+                table_name,
+                field,
+                value: _,
+            } => {
+                write!(f, "Index Scan On {}.{}", table_name, field)
+            }
+            Node::PrimaryKeyScan { table_name, value } => {
+                write!(f, "Primary Key Scan On {}({})", table_name, value)
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]

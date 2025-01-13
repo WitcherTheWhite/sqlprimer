@@ -75,7 +75,7 @@ pub trait Transaction {
         col_value: &Value,
         index: HashSet<Value>,
     ) -> Result<()>;
-    
+
     // 根据 id 获取行
     fn read_by_id(&self, table_name: &str, id: &Value) -> Result<Option<Row>>;
 }
@@ -118,6 +118,20 @@ impl<E: Engine + 'static> Session<E> {
                     self.txn = None;
                 }
                 Ok(ResultSet::Rollback { version })
+            }
+            ast::Statement::Explain { stmt } => {
+                let plan = match self.txn.as_ref() {
+                    Some(_) => Plan::build(*stmt, self.txn.as_mut().unwrap())?,
+                    None => {
+                        let mut txn = self.engine.begin()?;
+                        let plan = Plan::build(*stmt, &mut txn)?;
+                        txn.commmit()?;
+                        plan
+                    }
+                };
+                Ok(ResultSet::Explain {
+                    plan: plan.0.to_string(),
+                })
             }
             stmt if self.txn.is_some() => {
                 Plan::build(stmt, self.txn.as_mut().unwrap())?.execute(self.txn.as_mut().unwrap())

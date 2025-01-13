@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 
 use crate::{
     error::{Error, Result},
@@ -39,6 +39,9 @@ pub enum Statement {
     Begin,
     Commit,
     Rollback,
+    Explain {
+        stmt: Box<Statement>,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -69,6 +72,25 @@ pub enum Expression {
 impl From<Consts> for Expression {
     fn from(value: Consts) -> Self {
         Self::Consts(value)
+    }
+}
+
+impl Display for Expression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expression::Filed(v) => write!(f, "{}", v),
+            Expression::Consts(c) => write!(
+                f,
+                "{}",
+                Value::from_expression(Expression::Consts(c.clone()))
+            ),
+            Expression::Operation(operation) => match operation {
+                Operation::Equal(l, r) => write!(f, "{} = {}", l, r),
+                Operation::GreaterThan(l, r) => write!(f, "{} > {}", l, r),
+                Operation::LessThan(l, r) => write!(f, "{} < {}", l, r),
+            },
+            Expression::Function(name, field) => write!(f, "{}({})", name, field),
+        }
     }
 }
 

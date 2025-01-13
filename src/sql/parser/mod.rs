@@ -44,6 +44,7 @@ impl<'a> Parser<'a> {
             Some(Token::Keyword(Keyword::Begin)) => self.parse_transaction(),
             Some(Token::Keyword(Keyword::Commit)) => self.parse_transaction(),
             Some(Token::Keyword(Keyword::Rollback)) => self.parse_transaction(),
+            Some(Token::Keyword(Keyword::Explain)) => self.parse_explain(),
             Some(t) => Err(Error::Parse(format!("[Parser] Unexpected token {}", t))),
             None => Err(Error::Parse(format!("[Parser] Unexpected end of input"))),
         }
@@ -297,6 +298,21 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::Commit) => ast::Statement::Commit,
             Token::Keyword(Keyword::Rollback) => ast::Statement::Rollback,
             _ => return Err(Error::Parse("unkonwn transcation command".into())),
+        })
+    }
+
+    fn parse_explain(&mut self) -> Result<ast::Statement> {
+        self.next_expect(Token::Keyword(Keyword::Explain))?;
+        if self
+            .next_if_token(Token::Keyword(Keyword::Explain))
+            .is_some()
+        {
+            return Err(Error::Parse("cannot nest explain statement".into()));
+        }
+        let stmt = self.parse_statement()?;
+
+        Ok(ast::Statement::Explain {
+            stmt: Box::new(stmt),
         })
     }
 

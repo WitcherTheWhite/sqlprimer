@@ -95,6 +95,9 @@ pub enum ResultSet {
     Rollback {
         version: u64,
     },
+    Explain {
+        plan: String,
+    },
 }
 
 impl ResultSet {
@@ -151,7 +154,7 @@ impl ResultSet {
             ResultSet::Begin { version } => format!("TRANSACTION {} BEGIN", version),
             ResultSet::Commit { version } => format!("TRANSACTION {} COMMIT", version),
             ResultSet::Rollback { version } => format!("TRANSACTION {} ROLLBACK", version),
-            // ResultSet::Explain { plan } => plan.to_string(),
+            ResultSet::Explain { plan } => plan.to_string(),
         }
     }
 }

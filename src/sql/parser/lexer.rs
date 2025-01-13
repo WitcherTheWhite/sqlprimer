@@ -105,6 +105,7 @@ pub enum Keyword {
     Commit,
     Rollback,
     Index,
+    Explain,
 }
 
 impl Keyword {
@@ -155,6 +156,7 @@ impl Keyword {
             "COMMIT" => Keyword::Commit,
             "ROLLBACK" => Keyword::Rollback,
             "INDEX" => Keyword::Index,
+            "EXPLAIN" => Keyword::Explain,
             _ => return None,
         })
     }
@@ -206,6 +208,7 @@ impl Keyword {
             Keyword::Commit => "COMMIT",
             Keyword::Rollback => "ROLLBACK",
             Keyword::Index => "INDEX",
+            Keyword::Explain => "EXPLAIN",
         }
     }
 }
